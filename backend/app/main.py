@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 import random
 
-from models.event_model import (
+from app.db.schemas import (
     Event,
     Validation,
     EventsResponse,
@@ -32,8 +32,8 @@ app.add_middleware(
 )
 
 # Load mock data
-MOCK_DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "mock_data", "mock_data.json")
-MOCK_VALIDATIONS_PATH = os.path.join(os.path.dirname(__file__), "..", "mock_data", "mock_validations.json")
+MOCK_DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "mock_data", "mock_data.json")
+MOCK_VALIDATIONS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "mock_data", "mock_validations.json")
 
 
 def load_mock_events():
