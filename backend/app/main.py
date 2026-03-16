@@ -15,6 +15,7 @@ from app.db.schemas import (
     PricePoint,
     AnalyzeRequest,
 )
+from app.services.orchestrator import analysis_orchestrator
 
 app = FastAPI(
     title="GeoPulse AI API",
@@ -53,7 +54,7 @@ def load_mock_validations():
 
 
 # In-memory storage (would be MongoDB in production)
-events_store = load_mock_events()
+events_store = analysis_orchestrator.event_store
 validations_store = load_mock_validations()
 
 
@@ -69,18 +70,14 @@ async def root():
 @app.get("/api/events", response_model=EventsResponse)
 async def get_events(limit: int = Query(10, ge=1, le=50)):
     """Get latest events sorted by timestamp (newest first)."""
-    sorted_events = sorted(
-        events_store,
-        key=lambda x: x.get("timestamp", ""),
-        reverse=True,
-    )[:limit]
+    sorted_events = analysis_orchestrator.list_events(limit)
     return {"status": "success", "data": sorted_events}
 
 
 @app.get("/api/events/{event_id}")
 async def get_event(event_id: str):
     """Get a specific event by ID."""
-    event = next((e for e in events_store if e.get("event_id") == event_id), None)
+    event = analysis_orchestrator.get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
@@ -114,7 +111,7 @@ async def validate_event(
     horizon: str = Query("1h", regex="^(1h|6h|24h)$"),
 ):
     """Run or get validation for a specific event and horizon."""
-    event = next((e for e in events_store if e.get("event_id") == event_id), None)
+    event = analysis_orchestrator.get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
@@ -229,130 +226,22 @@ async def get_price(
 async def analyze_news(request: AnalyzeRequest):
     """
     Analyze news and generate predictions.
-    In production, this would call the LLM.
-    For demo, returns a mock analysis.
+    Uses the rule-based analysis pipeline for deterministic ripple-graph output.
     """
-    #replace with analysis.py when that gets made - anni
-
-    # Mock LLM response (in production, would call OpenAI/Gemini)
-    event_id = f"evt_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-    
-    # Simple keyword-based mock analysis
     headline_lower = request.headline.lower()
-    
-    if any(word in headline_lower for word in ["oil", "opec", "saudi", "energy"]):
-        macro_effect = "Supply Shock"
-        market_pressure = "INFLATIONARY"
-        severity = "HIGH"
-        affected_assets = [
-            {
-                "ticker": "XOM",
-                "name": "Exxon Mobil",
-                "asset_class": "Equity",
-                "sector": "Energy",
-                "prediction": "BULLISH",
-                "confidence": 0.85,
-                "reason": "Oil price increases benefit energy producers.",
-            }
-        ]
-        logic_chain = [
-            {"type": "event", "text": "Oil news"},
-            {"type": "macro", "text": "Supply Shock"},
-            {"type": "sector", "text": "Energy"},
-            {"type": "asset", "text": "XOM"},
-        ]
-    elif any(word in headline_lower for word in ["fed", "rate", "interest", "monetary"]):
-        macro_effect = "Monetary Policy Shift"
-        market_pressure = "RISK_ON" if "cut" in headline_lower else "DEFENSIVE"
-        severity = "HIGH"
-        affected_assets = [
-            {
-                "ticker": "SPY",
-                "name": "S&P 500 ETF",
-                "asset_class": "Equity",
-                "sector": "Broad Market",
-                "prediction": "BULLISH" if "cut" in headline_lower else "BEARISH",
-                "confidence": 0.80,
-                "reason": "Rate changes affect equity valuations.",
-            }
-        ]
-        logic_chain = [
-            {"type": "event", "text": "Fed announcement"},
-            {"type": "macro", "text": macro_effect},
-            {"type": "sector", "text": "Financials"},
-            {"type": "asset", "text": "SPY"},
-        ]
-    elif any(word in headline_lower for word in ["ai", "regulation", "tech", "microsoft", "google"]):
-        macro_effect = "Regulatory Impact"
-        market_pressure = "DEFENSIVE"
-        severity = "MEDIUM"
-        affected_assets = [
-            {
-                "ticker": "MSFT",
-                "name": "Microsoft",
-                "asset_class": "Equity",
-                "sector": "Technology",
-                "prediction": "BEARISH" if "regulation" in headline_lower else "BULLISH",
-                "confidence": 0.70,
-                "reason": "Tech sector faces regulatory changes.",
-            }
-        ]
-        logic_chain = [
-            {"type": "event", "text": "Tech news"},
-            {"type": "macro", "text": macro_effect},
-            {"type": "sector", "text": "Technology"},
-            {"type": "asset", "text": "MSFT"},
-        ]
-    else:
-        macro_effect = "Market Uncertainty"
-        market_pressure = "RISK_OFF"
-        severity = "LOW"
-        affected_assets = [
-            {
-                "ticker": "GLD",
-                "name": "Gold ETF",
-                "asset_class": "Commodity",
-                "sector": "Precious Metals",
-                "prediction": "BULLISH",
-                "confidence": 0.55,
-                "reason": "Uncertainty drives safe haven demand.",
-            }
-        ]
-        logic_chain = [
-            {"type": "event", "text": "General news"},
-            {"type": "macro", "text": macro_effect},
-            {"type": "sector", "text": "Safe Haven"},
-            {"type": "asset", "text": "GLD"},
-        ]
-    
-    event = {
-        "event_id": event_id,
+    article = {
         "headline": request.headline,
+        "description": request.text or request.headline,
         "source": request.source,
-        "timestamp": (request.timestamp or datetime.utcnow()).isoformat() + "Z",
-        "severity": severity,
-        "event_sentiment": "NEGATIVE" if "cut" not in headline_lower and "positive" not in headline_lower else "POSITIVE",
-        "macro_effect": macro_effect,
+        "timestamp": request.timestamp or datetime.utcnow(),
+        "severity": "HIGH" if any(word in headline_lower for word in ["war", "attack", "tariff", "cut", "hike"]) else "MEDIUM",
+        "event_sentiment": "POSITIVE" if any(word in headline_lower for word in ["approval", "stimulus", "beat", "cut"]) else "NEGATIVE" if any(word in headline_lower for word in ["attack", "tariff", "ban", "miss"]) else "MIXED",
+        "market_pressure": "RISK_ON" if any(word in headline_lower for word in ["stimulus", "approval", "cut", "beat"]) else "INFLATIONARY" if any(word in headline_lower for word in ["oil", "opec", "crude"]) else "DEFENSIVE" if any(word in headline_lower for word in ["regulation", "tariff", "war"]) else "RISK_OFF",
         "prediction_horizon": "SHORT_TERM",
-        "market_pressure": market_pressure,
-        "logic_chain": logic_chain,
-        "affected_assets": affected_assets,
-        "why": f"Analysis based on {macro_effect.lower()} implications.",
-        "meta": {
-            "llm_model": "demo-gpt",
-            "llm_prompt_version": "v1",
-            "confidence_components": {
-                "llm_score": 0.75,
-                "sentiment_strength": 0.6,
-                "historical_similarity": 0.5,
-            },
-            "confidence_formula": "0.4*llm_score+0.3*sentiment_strength+0.3*historical_similarity",
-        },
+        "context_meta": {"context_confidence": 0.72},
     }
-    
-    # Add to store
-    events_store.insert(0, event)
-    
+    event = analysis_orchestrator.analyze_and_store(article)
+
     return {"status": "success", "data": event}
 
 
@@ -361,7 +250,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "events_count": len(events_store),
+        "events_count": analysis_orchestrator.event_count(),
         "validations_count": len(validations_store),
     }
 

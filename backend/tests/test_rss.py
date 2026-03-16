@@ -1,29 +1,31 @@
-### rss test script delete later ###
-
 import multiprocessing
-from workers.rssfetch import read_rss_feeds
-from analysis import analyze_data
 
-def start_rss_reader(queue):
-    print("Starting RSS feed reader...")
-    read_rss_feeds(queue)
+from workers.analysis.pipeline import analysis_worker
 
-def start_analysis_worker(queue):
-    print("Starting analysis worker...")
-    analyze_data(queue)
 
-if __name__ == "__main__":
-    queue = multiprocessing.Queue()
+def test_analysis_worker_processes_article_and_forwards_result() -> None:
+    input_queue: multiprocessing.Queue = multiprocessing.Queue()
+    output_queue: multiprocessing.Queue = multiprocessing.Queue()
 
-    rss_process = multiprocessing.Process(target=start_rss_reader, args=(queue,))
-    analysis_process = multiprocessing.Process(target=start_analysis_worker, args=(queue,))
+    input_queue.put(
+        {
+            "headline": "China announces major infrastructure stimulus package",
+            "description": "The plan is expected to support industrial demand and materials pricing.",
+            "source": "Financial Times",
+            "severity": "HIGH",
+            "event_sentiment": "POSITIVE",
+            "market_pressure": "RISK_ON",
+            "prediction_horizon": "MEDIUM_TERM",
+            "context_meta": {"context_confidence": 0.8},
+        }
+    )
+    input_queue.put(None)
 
-    rss_process.start()
-    analysis_process.start()
+    analysis_worker(input_queue, output_queue)
 
-    try:
-        rss_process.join()
-        analysis_process.join()
-    except (KeyboardInterrupt, SystemExit):
-        rss_process.terminate()
-        analysis_process.terminate()
+    event = output_queue.get(timeout=1)
+    sentinel = output_queue.get(timeout=1)
+
+    assert event["macro_effect"] == "Fiscal stimulus"
+    assert event["affected_assets"][0]["prediction"] == "BULLISH"
+    assert sentinel is None
