@@ -27,7 +27,7 @@ class AnalysisPipeline:
         context_confidence = float(
             article.get("context_meta", {}).get("context_confidence", 0.5)
         )
-        primary_weight = next(iter(ordered_sector_impacts.values()))
+        primary_weight = next(iter(ordered_sector_impacts.values()), 0.2)
         event_confidence = compute_confidence(
             context_confidence=context_confidence,
             severity=str(article.get("severity", "MEDIUM")),
@@ -36,9 +36,16 @@ class AnalysisPipeline:
         )
 
         assets: list[dict[str, Any]] = []
+        seen_tickers: set[str] = set()
         for sector, weight in list(ordered_sector_impacts.items())[:3]:
-            prediction = "BULLISH" if weight > 0 else "BEARISH"
-            for asset in assets_for_sector(sector)[:2]:
+            prediction = "BULLISH" if weight > 0 else "BEARISH" if weight < 0 else "NEUTRAL"
+            sector_assets_added = 0
+            for asset in assets_for_sector(sector):
+                ticker = str(asset["ticker"])
+                if ticker in seen_tickers:
+                    continue
+
+                seen_tickers.add(ticker)
                 assets.append(
                     {
                         **asset,
@@ -50,12 +57,17 @@ class AnalysisPipeline:
                         ),
                     }
                 )
+                sector_assets_added += 1
+                if sector_assets_added == 2:
+                    break
 
         return build_ripple_event(
             article=article,
+            event_type=classification.event_type,
             macro_signal=classification.macro_signal,
             sector_impacts=ordered_sector_impacts,
             assets=assets,
+            event_confidence=event_confidence,
             confidence_components=confidence_meta(
                 context_confidence=context_confidence,
                 signal_strength=classification.signal_strength,

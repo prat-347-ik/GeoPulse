@@ -29,6 +29,10 @@ def test_analyze_endpoint_generates_structured_event() -> None:
 	assert response.status_code == 200
 	payload = response.json()["data"]
 	assert payload["macro_effect"] == "Oil supply contraction"
+	assert payload["event_type"] == "ENERGY"
+	assert 0 <= payload["confidence"] <= 1
+	assert payload["sector_impacts"][0]["sector"] == "Energy"
+	assert payload["sector_impacts"][0]["direction"] == "UP"
 	assert payload["affected_assets"][0]["ticker"] == "XOM"
 	assert payload["affected_assets"][0]["prediction"] == "BULLISH"
 	assert payload["meta"]["llm_model"] == "rule-engine-v1"

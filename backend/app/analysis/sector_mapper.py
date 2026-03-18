@@ -95,8 +95,24 @@ PRESSURE_FALLBACK_MAP: dict[str, dict[str, float]] = {
 }
 
 
+def _sort_sector_impacts(sector_impacts: dict[str, float]) -> dict[str, float]:
+    return dict(
+        sorted(
+            sector_impacts.items(),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )
+    )
+
+
 def map_macro_to_sectors(macro_signal: str, market_pressure: str) -> dict[str, float]:
     sectors = SECTOR_MAP.get(macro_signal)
     if sectors:
-        return dict(sectors)
-    return dict(PRESSURE_FALLBACK_MAP.get((market_pressure or "").upper(), {"Broad Market": 0.2}))
+        return _sort_sector_impacts(sectors)
+
+    fallback_sectors = PRESSURE_FALLBACK_MAP.get((market_pressure or "").upper())
+    if fallback_sectors:
+        ordered_fallbacks = list(_sort_sector_impacts(fallback_sectors).items())[:2]
+        return dict(ordered_fallbacks)
+
+    return {"Broad Market": 0.2}

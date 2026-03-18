@@ -13,13 +13,63 @@ def _mock_data_path() -> Path:
 	return Path(__file__).resolve().parents[3] / "mock_data" / "mock_data.json"
 
 
+def _infer_event_type(event: dict[str, Any]) -> str:
+	macro_effect = str(event.get("macro_effect", "")).lower()
+	if any(token in macro_effect for token in {"oil", "energy"}):
+		return "ENERGY"
+	if any(token in macro_effect for token in {"regulatory", "trade", "tariff"}):
+		return "REGULATION"
+	if any(token in macro_effect for token in {"earnings", "guidance"}):
+		return "EARNINGS"
+	if any(token in macro_effect for token in {"technology", "ai", "chip", "semiconductor"}):
+		return "TECH"
+	if any(token in macro_effect for token in {"supply", "logistics", "shipping"}):
+		return "SUPPLY_CHAIN"
+	if any(token in macro_effect for token in {"geopolitical", "war", "sanction"}):
+		return "GEOPOLITICAL"
+	return "MACRO"
+
+
+def _normalize_seed_event(event: dict[str, Any]) -> dict[str, Any]:
+	normalized = deepcopy(event)
+	affected_assets = normalized.get("affected_assets", [])
+	primary_asset = affected_assets[0] if affected_assets else {}
+	default_confidence = 0.5
+	if affected_assets:
+		default_confidence = round(
+			sum(float(asset.get("confidence", 0.5)) for asset in affected_assets) / len(affected_assets),
+			3,
+		)
+
+	if "event_type" not in normalized:
+		normalized["event_type"] = _infer_event_type(normalized)
+	if "confidence" not in normalized:
+		normalized["confidence"] = default_confidence
+	if "sector_impacts" not in normalized:
+		sector = str(primary_asset.get("sector") or "Broad Market")
+		prediction = str(primary_asset.get("prediction") or "NEUTRAL").upper()
+		weight = default_confidence if prediction == "BULLISH" else -default_confidence if prediction == "BEARISH" else 0.0
+		direction = "UP" if weight > 0 else "DOWN" if weight < 0 else "FLAT"
+		normalized["sector_impacts"] = [
+			{
+				"sector": sector,
+				"direction": direction,
+				"weight": round(weight, 3),
+			}
+		]
+
+	return normalized
+
+
 def load_seed_events() -> list[dict[str, Any]]:
 	path = _mock_data_path()
 	if not path.exists():
 		return []
 	with path.open("r", encoding="utf-8") as handle:
 		data = json.load(handle)
-	return data if isinstance(data, list) else []
+	if not isinstance(data, list):
+		return []
+	return [_normalize_seed_event(event) for event in data if isinstance(event, dict)]
 
 
 class EventStore:

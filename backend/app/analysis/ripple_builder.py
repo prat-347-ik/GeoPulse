@@ -26,13 +26,22 @@ def _to_iso8601(value: Any) -> str:
 
 def build_ripple_event(
     article: dict[str, Any],
+    event_type: str,
     macro_signal: str,
     sector_impacts: dict[str, float],
     assets: list[dict[str, Any]],
+    event_confidence: float,
     confidence_components: dict[str, float],
 ) -> dict[str, Any]:
-    primary_sector = next(iter(sector_impacts))
-    primary_asset = assets[0]
+    primary_sector = next(iter(sector_impacts), "Broad Market")
+    primary_asset = assets[0] if assets else {
+        "ticker": "SPY",
+        "name": "S&P 500 ETF",
+        "asset_class": "Equity",
+        "sector": primary_sector,
+        "prediction": "NEUTRAL",
+        "confidence": event_confidence,
+    }
     primary_prediction = primary_asset["prediction"]
 
     why = build_explanation(
@@ -64,14 +73,28 @@ def build_ripple_event(
             }
         )
 
+    normalized_sector_impacts = []
+    for sector, weight in sector_impacts.items():
+        direction = "UP" if weight > 0 else "DOWN" if weight < 0 else "FLAT"
+        normalized_sector_impacts.append(
+            {
+                "sector": sector,
+                "direction": direction,
+                "weight": round(weight, 3),
+            }
+        )
+
     return {
         "event_id": f"evt_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:6]}",
         "headline": str(article.get("headline", "Untitled event")),
         "source": str(article.get("source", "Unknown")),
         "timestamp": _to_iso8601(article.get("timestamp")),
+        "event_type": event_type,
         "severity": str(article.get("severity", "MEDIUM")).upper(),
         "event_sentiment": str(article.get("event_sentiment", "MIXED")).upper(),
+        "confidence": round(event_confidence, 3),
         "macro_effect": macro_signal,
+        "sector_impacts": normalized_sector_impacts,
         "prediction_horizon": str(article.get("prediction_horizon", "MEDIUM_TERM")).upper(),
         "market_pressure": str(article.get("market_pressure", "DEFENSIVE")).upper(),
         "logic_chain": logic_chain,

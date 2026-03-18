@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from app.db.repository import EventRepository
 from typing import Optional
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 
 from app.db.schemas import (
@@ -22,6 +23,8 @@ app = FastAPI(
     description="News-to-market-impact prediction API",
     version="1.0.0",
 )
+
+
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -56,6 +59,19 @@ def load_mock_validations():
 # In-memory storage (would be MongoDB in production)
 events_store = analysis_orchestrator.event_store
 validations_store = load_mock_validations()
+
+# Dependency to get the repository
+async def get_event_repo():
+    db = await get_database()
+    return EventRepository(db)
+
+@app.on_event("startup")
+async def startup_db_client():
+    await connect_to_mongo()
+    # Auto-create indexes on startup
+    db = await get_database()
+    repo = EventRepository(db)
+    await repo.create_indexes()
 
 
 @app.get("/")
@@ -108,7 +124,7 @@ async def get_validations(limit: int = Query(20, ge=1, le=100)):
 @app.get("/api/validate/{event_id}")
 async def validate_event(
     event_id: str,
-    horizon: str = Query("1h", regex="^(1h|6h|24h)$"),
+    horizon: str = Query("1h", pattern="^(1h|6h|24h)$"),
 ):
     """Run or get validation for a specific event and horizon."""
     event = analysis_orchestrator.get_event(event_id)
@@ -170,7 +186,7 @@ async def validate_event(
             "price_at_validation": round(mock_price_at_validation, 2),
             "actual_change_percent": round(change, 2),
             "status": status,
-            "validated_at": datetime.utcnow().isoformat() + "Z",
+            "validated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         
         validations_store.append(validation)
@@ -182,11 +198,11 @@ async def validate_event(
 @app.get("/api/price")
 async def get_price(
     ticker: str = Query(..., min_length=1, max_length=10),
-    range: str = Query("1d", regex="^(1h|1d|1w|1m)$"),
+    range: str = Query("1d", pattern="^(1h|1d|1w|1m)$"),
 ):
     """Get price data for a ticker (mock data for demo)."""
     # Generate mock price data
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     range_hours = {
         "1h": 1,
@@ -233,7 +249,7 @@ async def analyze_news(request: AnalyzeRequest):
         "headline": request.headline,
         "description": request.text or request.headline,
         "source": request.source,
-        "timestamp": request.timestamp or datetime.utcnow(),
+        "timestamp": request.timestamp or datetime.now(timezone.utc),
         "severity": "HIGH" if any(word in headline_lower for word in ["war", "attack", "tariff", "cut", "hike"]) else "MEDIUM",
         "event_sentiment": "POSITIVE" if any(word in headline_lower for word in ["approval", "stimulus", "beat", "cut"]) else "NEGATIVE" if any(word in headline_lower for word in ["attack", "tariff", "ban", "miss"]) else "MIXED",
         "market_pressure": "RISK_ON" if any(word in headline_lower for word in ["stimulus", "approval", "cut", "beat"]) else "INFLATIONARY" if any(word in headline_lower for word in ["oil", "opec", "crude"]) else "DEFENSIVE" if any(word in headline_lower for word in ["regulation", "tariff", "war"]) else "RISK_OFF",
@@ -249,7 +265,7 @@ async def analyze_news(request: AnalyzeRequest):
 async def health_check():
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "events_count": analysis_orchestrator.event_count(),
         "validations_count": len(validations_store),
     }

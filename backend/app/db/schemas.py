@@ -37,6 +37,12 @@ class PredictionEnum(str, Enum):
     NEUTRAL = "NEUTRAL"
 
 
+class SectorImpactDirectionEnum(str, Enum):
+    UP = "UP"
+    DOWN = "DOWN"
+    FLAT = "FLAT"
+
+
 class AssetClassEnum(str, Enum):
     EQUITY = "Equity"
     COMMODITY = "Commodity"
@@ -72,14 +78,23 @@ class AffectedAsset(BaseModel):
     reason: str = Field(max_length=200)
 
 
+class SectorImpact(BaseModel):
+    sector: str
+    direction: SectorImpactDirectionEnum
+    weight: float = Field(ge=-1, le=1)
+
+
 class Event(BaseModel):
     event_id: str
     headline: str
     source: str
     timestamp: datetime
+    event_type: str
     severity: SeverityEnum
     event_sentiment: SentimentEnum
+    confidence: float = Field(ge=0, le=1)
     macro_effect: str
+    sector_impacts: List[SectorImpact]
     prediction_horizon: HorizonEnum
     market_pressure: MarketPressureEnum
     logic_chain: List[LogicChainNode]
