@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from app.db.mongodb import mongodb_connection
 from app.db.repository import EventRepository
 from typing import Optional
 import json
@@ -60,18 +61,29 @@ def load_mock_validations():
 events_store = analysis_orchestrator.event_store
 validations_store = load_mock_validations()
 
-# Dependency to get the repository
-async def get_event_repo():
-    db = await get_database()
-    return EventRepository(db)
+# Repository instance (initialized at startup)
+event_repo: Optional[EventRepository] = None
+
 
 @app.on_event("startup")
 async def startup_db_client():
-    await connect_to_mongo()
-    # Auto-create indexes on startup
-    db = await get_database()
-    repo = EventRepository(db)
-    await repo.create_indexes()
+    """Initialize MongoDB connection and create indexes"""
+    global event_repo
+    try:
+        await mongodb_connection.connect()
+        db = mongodb_connection.get_db()
+        event_repo = EventRepository(db)
+        await event_repo.create_all_indexes()
+        print("✅ Database initialized successfully")
+    except Exception as e:
+        print(f"⚠️  Could not connect to MongoDB: {e}")
+        print("Using in-memory storage as fallback")
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    """Close MongoDB connection on shutdown"""
+    await mongodb_connection.disconnect()
 
 
 @app.get("/")

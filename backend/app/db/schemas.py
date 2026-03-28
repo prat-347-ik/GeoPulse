@@ -89,18 +89,25 @@ class Event(BaseModel):
     headline: str
     source: str
     timestamp: datetime
+    ingested_at: datetime = Field(default_factory=datetime.utcnow)
     event_type: str
     severity: SeverityEnum
     event_sentiment: SentimentEnum
     confidence: float = Field(ge=0, le=1)
     macro_effect: str
-    sector_impacts: List[SectorImpact]
-    prediction_horizon: HorizonEnum
     market_pressure: MarketPressureEnum
-    logic_chain: List[LogicChainNode]
+    prediction_horizon: HorizonEnum
+    sector_impacts: List[SectorImpact]
     affected_assets: List[AffectedAsset]
-    why: str = Field(max_length=200)
+    logic_chain: List[LogicChainNode]
+    why: str = Field(max_length=500)
     meta: EventMeta
+    tags: Optional[List[str]] = None
+    region: Optional[str] = None
+    cluster_id: Optional[str] = None
+    impact_score: Optional[float] = Field(None, ge=0, le=1)
+    is_validated: bool = False
+    actual_move: Optional[float] = None
 
 
 class ValidationStatus(str, Enum):
