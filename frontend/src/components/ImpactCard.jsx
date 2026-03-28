@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Clock, ExternalLink, AlertTriangle, TrendingUp, Info } from 'lucide-react';
+import { Clock, ExternalLink, AlertTriangle, TrendingUp, Info, Zap, TrendingDown } from 'lucide-react';
 import AssetCard from './AssetCard';
 
 function getSeverityColor(severity) {
@@ -37,6 +37,36 @@ function formatTime(timestamp) {
     minute: '2-digit',
     timeZone: 'UTC'
   }) + ' UTC';
+}
+
+function getConfidenceBadgeColor(confidence) {
+  if (confidence >= 0.8) return 'bg-accent-green/20 text-accent-green border-accent-green/50';
+  if (confidence >= 0.5) return 'bg-accent-orange/20 text-accent-orange border-accent-orange/50';
+  return 'bg-accent-red/20 text-accent-red border-accent-red/50';
+}
+
+function getEventTypeColor(eventType) {
+  const colors = {
+    'ENERGY': 'bg-yellow-900/50 text-yellow-300',
+    'REGULATION': 'bg-purple-900/50 text-purple-300',
+    'EARNINGS': 'bg-blue-900/50 text-blue-300',
+    'TECH': 'bg-cyan-900/50 text-cyan-300',
+    'SUPPLY_CHAIN': 'bg-orange-900/50 text-orange-300',
+    'GEOPOLITICAL': 'bg-red-900/50 text-red-300',
+    'MACRO': 'bg-indigo-900/50 text-indigo-300',
+  };
+  return colors[eventType] || 'bg-gray-700/50 text-gray-300';
+}
+
+function getSectorDirectionIcon(direction) {
+  switch (direction) {
+    case 'UP':
+      return <TrendingUp className="w-4 h-4 text-accent-green" />;
+    case 'DOWN':
+      return <TrendingDown className="w-4 h-4 text-accent-red" />;
+    default:
+      return <Zap className="w-4 h-4 text-text-secondary" />;
+  }
 }
 
 function ConfidenceRing({ confidence }) {
@@ -85,10 +115,11 @@ export default function ImpactCard({ event, onAssetClick }) {
     );
   }
 
-  // Calculate average confidence
+  // Calculate average confidence from event or affected_assets
+  const eventConfidence = event.confidence || 0.5;
   const avgConfidence = event.affected_assets?.length > 0
-    ? event.affected_assets.reduce((sum, a) => sum + a.confidence, 0) / event.affected_assets.length
-    : 0;
+    ? event.affected_assets.reduce((sum, a) => sum + (a.confidence || 0.5), 0) / event.affected_assets.length
+    : eventConfidence;
 
   return (
     <motion.div
@@ -97,7 +128,7 @@ export default function ImpactCard({ event, onAssetClick }) {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      {/* Header */}
+      {/* Header with event type and confidence badges */}
       <div className="space-y-3">
         <div className="flex items-start gap-4">
           <div className="flex-1">
@@ -108,6 +139,19 @@ export default function ImpactCard({ event, onAssetClick }) {
             >
               {event.headline}
             </motion.h1>
+            
+            {/* Tags: Event Type + Confidence Badge */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {event.event_type && (
+                <span className={`px-2 py-1 rounded text-xs font-medium ${getEventTypeColor(event.event_type)}`}>
+                  {event.event_type}
+                </span>
+              )}
+              <span className={`px-2 py-1 rounded text-xs font-medium border ${getConfidenceBadgeColor(avgConfidence)}`}>
+                Confidence: {Math.round(avgConfidence * 100)}%
+              </span>
+            </div>
+
             <div className="flex items-center gap-4 text-sm text-text-secondary">
               <div className="flex items-center gap-1">
                 <ExternalLink className="w-4 h-4" />
@@ -151,6 +195,40 @@ export default function ImpactCard({ event, onAssetClick }) {
           <p className="text-sm text-white">{event.why}</p>
         </div>
       </div>
+
+      {/* Sector Impacts (New Schema) */}
+      {event.sector_impacts && event.sector_impacts.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">
+            Sector Impact Analysis
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {event.sector_impacts.map((impact, idx) => (
+              <motion.div
+                key={`${impact.sector}-${idx}`}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.1 }}
+                className="p-3 rounded-card bg-bg-card border border-gray-800 hover:border-gray-700 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium text-white text-sm">{impact.sector}</span>
+                  {getSectorDirectionIcon(impact.direction)}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-secondary">Impact Weight:</span>
+                  <span className={`text-sm font-semibold ${
+                    impact.weight > 0 ? 'text-accent-green' : 
+                    impact.weight < 0 ? 'text-accent-red' : 'text-text-secondary'
+                  }`}>
+                    {impact.weight > 0 ? '+' : ''}{(impact.weight * 100).toFixed(1)}%
+                  </span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Affected Assets */}
       <div>

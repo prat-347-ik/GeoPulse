@@ -49,6 +49,7 @@ function CustomNode({ data }) {
         style={{
           backgroundColor: `${colors.bg}20`,
           borderColor: colors.border,
+          opacity: data.opacity !== undefined ? data.opacity : 1,
         }}
       >
         <div className="flex items-center justify-center gap-2 mb-1">
@@ -58,6 +59,11 @@ function CustomNode({ data }) {
           </span>
         </div>
         <p className="text-sm font-medium text-white">{data.label}</p>
+        {data.weight !== undefined && (
+          <p className="text-xs text-white/70 mt-1">
+            Weight: {(data.weight * 100).toFixed(1)}%
+          </p>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -98,29 +104,164 @@ function buildGraphFromLogicChain(logicChain) {
   return { nodes, edges };
 }
 
-export default function RippleGraph({ logicChain, severity }) {
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => buildGraphFromLogicChain(logicChain),
-    [logicChain]
-  );
+/**
+ * Build a graph from sector impacts and affected assets
+ * Shows: Event → Top Sectors → Top Assets
+ */
+function buildGraphFromSectorData(event) {
+  if (!event) {
+    return { nodes: [], edges: [] };
+  }
+
+  const nodes = [];
+  const edges = [];
+  let nodeIndex = 0;
+  let yOffset = 0;
+
+  // Event node (root)
+  const eventNodeId = `node-${nodeIndex}`;
+  nodes.push({
+    id: eventNodeId,
+    type: 'custom',
+    position: { x: 0, y: 0 },
+    data: {
+      label: event.headline?.substring(0, 20) + '...' || 'Event',
+      nodeType: 'event',
+      delay: 0,
+    },
+  });
+  nodeIndex++;
+
+  // Sector nodes from sector_impacts
+  const sectorNodes = [];
+  const maxSectors = Math.min(event.sector_impacts?.length || 0, 3);
+  
+  if (maxSectors > 0) {
+    yOffset = (maxSectors - 1) * -60;
+    event.sector_impacts.slice(0, maxSectors).forEach((impact, idx) => {
+      const sectorNodeId = `node-${nodeIndex}`;
+      const opacity = Math.max(0.5, Math.abs(impact.weight));
+      
+      nodes.push({
+        id: sectorNodeId,
+        type: 'custom',
+        position: { x: 250, y: yOffset + idx * 120 },
+        data: {
+          label: impact.sector,
+          nodeType: 'sector',
+          weight: impact.weight,
+          delay: (idx + 1) * 0.15,
+          opacity,
+        },
+      });
+
+      const strokeWidth = Math.max(1, Math.abs(impact.weight) * 4);
+      const strokeColor = impact.weight > 0 ? '#22C55E' : impact.weight < 0 ? '#F87171' : '#6B7280';
+
+      edges.push({
+        id: `edge-${nodeIndex}`,
+        source: eventNodeId,
+        target: sectorNodeId,
+        animated: true,
+        style: { stroke: strokeColor, strokeWidth },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: strokeColor,
+        },
+      });
+
+      sectorNodes.push({ id: sectorNodeId, sectorIndex: idx });
+      nodeIndex++;
+    });
+  }
+
+  // Asset nodes from affected_assets
+  const maxAssets = Math.min(event.affected_assets?.length || 0, 3);
+  
+  if (maxAssets > 0 && sectorNodes.length > 0) {
+    event.affected_assets.slice(0, maxAssets).forEach((asset, assetIdx) => {
+      const assetNodeId = `node-${nodeIndex}`;
+      const confidence = asset.confidence || 0.5;
+      const opacity = Math.max(0.6, confidence);
+
+      // Connect to a sector node (round-robin)
+      const sectorNodeIndex = assetIdx % sectorNodes.length;
+      const sourceNodeId = sectorNodes[sectorNodeIndex].id;
+
+      nodes.push({
+        id: assetNodeId,
+        type: 'custom',
+        position: { 
+          x: 500, 
+          y: sectorNodes[sectorNodeIndex].id.match(/\d+/) 
+            ? (parseInt(sectorNodes[sectorNodeIndex].id.match(/\d+/)[0]) * 120 - 250 + assetIdx * 40)
+            : 0 
+        },
+        data: {
+          label: asset.ticker,
+          nodeType: 'asset',
+          weight: confidence,
+          delay: (sectorNodes.length + assetIdx + 1) * 0.15,
+          opacity,
+        },
+      });
+
+      const strokeColor = asset.prediction === 'BULLISH' ? '#22C55E' : 
+                          asset.prediction === 'BEARISH' ? '#F87171' : '#6B7280';
+
+      edges.push({
+        id: `edge-asset-${assetIdx}`,
+        source: sourceNodeId,
+        target: assetNodeId,
+        animated: true,
+        style: { stroke: strokeColor, strokeWidth: 1.5 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: strokeColor,
+        },
+      });
+
+      nodeIndex++;
+    });
+  }
+
+  return { nodes, edges };
+}
+
+export default function RippleGraph({ logicChain, event, severity }) {
+  // Use sector_impacts data if available, otherwise fall back to logicChain
+  const hasEventData = event && (event.sector_impacts?.length > 0 || event.affected_assets?.length > 0);
+  
+  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
+    if (hasEventData) {
+      return buildGraphFromSectorData(event);
+    }
+    return buildGraphFromLogicChain(logicChain);
+  }, [event, logicChain, hasEventData]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   useEffect(() => {
-    const { nodes: newNodes, edges: newEdges } = buildGraphFromLogicChain(logicChain);
-    setNodes(newNodes);
-    setEdges(newEdges);
-  }, [logicChain, setNodes, setEdges]);
+    if (hasEventData) {
+      const { nodes: newNodes, edges: newEdges } = buildGraphFromSectorData(event);
+      setNodes(newNodes);
+      setEdges(newEdges);
+    } else {
+      const { nodes: newNodes, edges: newEdges } = buildGraphFromLogicChain(logicChain);
+      setNodes(newNodes);
+      setEdges(newEdges);
+    }
+  }, [event, logicChain, hasEventData, setNodes, setEdges]);
 
   // Don't show graph for LOW severity events
-  if (severity === 'LOW' || !logicChain || logicChain.length === 0) {
+  if (severity === 'LOW' || (initialNodes.length === 0)) {
     return (
       <div className="bg-bg-card border border-gray-800 rounded-card p-6 h-[300px] flex items-center justify-center">
         <p className="text-text-secondary text-sm">
           {severity === 'LOW'
             ? 'Ripple visualization hidden for LOW severity events'
-            : 'No logic chain available'}
+            : 'No ripple data available'}
         </p>
       </div>
     );
@@ -130,7 +271,7 @@ export default function RippleGraph({ logicChain, severity }) {
     <div className="bg-bg-card border border-gray-800 rounded-card overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-800">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Event → Macro → Sector → Asset
+          {hasEventData ? 'Event → Sector → Asset' : 'Event → Macro → Sector → Asset'}
         </h3>
       </div>
       <div className="h-[280px]">

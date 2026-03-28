@@ -34,7 +34,17 @@ function getAssetClassBadge(assetClass) {
 }
 
 export default function AssetCard({ asset, onClick }) {
-  const confidencePercent = Math.round(asset.confidence * 100);
+  // Handle missing or invalid data from live backend
+  if (!asset || !asset.ticker) {
+    return null;
+  }
+
+  const confidence = typeof asset.confidence === 'number' ? asset.confidence : 0.5;
+  const confidencePercent = Math.round(confidence * 100);
+  const prediction = asset.prediction || 'NEUTRAL';
+  const assetClass = asset.asset_class || 'Unknown';
+  const name = asset.name || asset.ticker;
+  const reason = asset.reason || 'No analysis available';
 
   return (
     <motion.div
@@ -45,30 +55,30 @@ export default function AssetCard({ asset, onClick }) {
       className="bg-bg-card border border-gray-800 rounded-card p-4 cursor-pointer hover:border-accent-blue transition-colors"
       tabIndex={0}
       role="button"
-      aria-label={`${asset.name} (${asset.ticker}): ${asset.prediction}`}
+      aria-label={`${name} (${asset.ticker}): ${prediction}`}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
     >
       {/* Header: Ticker + Asset Class */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold text-white">{asset.ticker}</span>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getAssetClassBadge(asset.asset_class)}`}>
-            {asset.asset_class}
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getAssetClassBadge(assetClass)}`}>
+            {assetClass}
           </span>
         </div>
-        <div className={`${getPredictionColor(asset.prediction)}`}>
-          {getPredictionIcon(asset.prediction)}
+        <div className={`${getPredictionColor(prediction)}`}>
+          {getPredictionIcon(prediction)}
         </div>
       </div>
 
       {/* Company Name */}
-      <p className="text-sm text-text-secondary mb-3">{asset.name}</p>
+      <p className="text-sm text-text-secondary mb-3">{name}</p>
 
       {/* Confidence Bar */}
       <div className="mb-2">
         <div className="flex items-center justify-between text-xs mb-1">
           <span className="text-text-secondary">Confidence</span>
-          <span className={`font-semibold ${getPredictionColor(asset.prediction)}`}>
+          <span className={`font-semibold ${getPredictionColor(prediction)}`}>
             {confidencePercent}%
           </span>
         </div>
@@ -78,24 +88,30 @@ export default function AssetCard({ asset, onClick }) {
             animate={{ width: `${confidencePercent}%` }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
             className={`h-full rounded-full ${
-              asset.prediction === 'BULLISH' ? 'bg-accent-green' :
-              asset.prediction === 'BEARISH' ? 'bg-accent-red' : 'bg-text-secondary'
+              prediction === 'BULLISH' ? 'bg-accent-green' :
+              prediction === 'BEARISH' ? 'bg-accent-red' : 'bg-text-secondary'
             }`}
           />
         </div>
       </div>
 
       {/* Reason */}
-      <p className="text-xs text-text-secondary line-clamp-2">{asset.reason}</p>
+      <p className="text-xs text-text-secondary line-clamp-2">{reason}</p>
     </motion.div>
   );
 }
 
 // Modal component for asset details
 export function AssetModal({ asset, onClose, priceData }) {
-  if (!asset) return null;
+  if (!asset || !asset.ticker) return null;
 
-  const confidencePercent = Math.round(asset.confidence * 100);
+  const confidence = typeof asset.confidence === 'number' ? asset.confidence : 0.5;
+  const confidencePercent = Math.round(confidence * 100);
+  const prediction = asset.prediction || 'NEUTRAL';
+  const assetClass = asset.asset_class || 'Unknown';
+  const name = asset.name || asset.ticker;
+  const sector = asset.sector || 'Unknown';
+  const reason = asset.reason || 'No analysis available';
 
   return (
     <motion.div
@@ -116,14 +132,14 @@ export function AssetModal({ asset, onClose, priceData }) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${
-              asset.prediction === 'BULLISH' ? 'bg-accent-green/20' :
-              asset.prediction === 'BEARISH' ? 'bg-accent-red/20' : 'bg-gray-700'
+              prediction === 'BULLISH' ? 'bg-accent-green/20' :
+              prediction === 'BEARISH' ? 'bg-accent-red/20' : 'bg-gray-700'
             }`}>
-              {getPredictionIcon(asset.prediction)}
+              {getPredictionIcon(prediction)}
             </div>
             <div>
               <h3 className="text-xl font-bold text-white">{asset.ticker}</h3>
-              <p className="text-sm text-text-secondary">{asset.name}</p>
+              <p className="text-sm text-text-secondary">{name}</p>
             </div>
           </div>
           <button
@@ -139,18 +155,18 @@ export function AssetModal({ asset, onClose, priceData }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between py-2 border-b border-gray-800">
             <span className="text-text-secondary">Asset Class</span>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getAssetClassBadge(asset.asset_class)}`}>
-              {asset.asset_class}
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getAssetClassBadge(assetClass)}`}>
+              {assetClass}
             </span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-gray-800">
             <span className="text-text-secondary">Sector</span>
-            <span className="text-white">{asset.sector}</span>
+            <span className="text-white">{sector}</span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-gray-800">
             <span className="text-text-secondary">Prediction</span>
-            <span className={`font-semibold ${getPredictionColor(asset.prediction)}`}>
-              {asset.prediction}
+            <span className={`font-semibold ${getPredictionColor(prediction)}`}>
+              {prediction}
             </span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-gray-800">
@@ -170,7 +186,7 @@ export function AssetModal({ asset, onClose, priceData }) {
                 <div
                   key={i}
                   className={`flex-1 rounded-sm ${
-                    asset.prediction === 'BULLISH' ? 'bg-accent-green/60' : 'bg-accent-red/60'
+                    prediction === 'BULLISH' ? 'bg-accent-green/60' : 'bg-accent-red/60'
                   }`}
                   style={{ height: `${height}%` }}
                 />
@@ -182,7 +198,7 @@ export function AssetModal({ asset, onClose, priceData }) {
         {/* Reason */}
         <div className="mt-4 p-3 bg-bg-primary rounded-lg">
           <p className="text-xs text-text-secondary mb-1">Analysis</p>
-          <p className="text-sm text-white">{asset.reason}</p>
+          <p className="text-sm text-white">{reason}</p>
         </div>
       </motion.div>
     </motion.div>

@@ -7,7 +7,7 @@ import RippleGraph from './components/RippleGraph';
 import ValidationPanel from './components/ValidationPanel';
 import { AssetModal } from './components/AssetCard';
 import RightPanel, { MobileRightPanel } from './components/RightPanel';
-import { getMockEvents, getMockValidations, fetchEvents, fetchValidations } from './lib/api';
+import { getMockEvents, getMockValidations, fetchEvents, fetchValidations, connectWebSocket } from './lib/api';
 
 export default function App() {
   const [demoMode, setDemoMode] = useState(true);
@@ -77,20 +77,71 @@ export default function App() {
     loadData();
   }, [demoMode]);
 
-  // Poll for updates when not in demo mode
+  // WebSocket connection for real-time events
   useEffect(() => {
     if (demoMode) return;
 
-    const interval = setInterval(async () => {
-      try {
-        const evts = await fetchEvents();
-        setEvents(evts);
-      } catch (error) {
-        console.error('Polling failed:', error);
-      }
-    }, 5000);
+    let ws = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 3000; // 3 seconds
 
-    return () => clearInterval(interval);
+    const connect = () => {
+      try {
+        ws = connectWebSocket();
+
+        ws.onopen = () => {
+          console.log('✅ WebSocket connected for real-time events');
+          reconnectAttempts = 0; // Reset reconnect counter on successful connection
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+
+            if (message.type === 'new_event' && message.event) {
+              // Prepend new event to the beginning of the events array
+              setEvents((prevEvents) => {
+                // Avoid duplicates
+                if (prevEvents.find((e) => e.event_id === message.event.event_id)) {
+                  return prevEvents;
+                }
+                return [message.event, ...prevEvents];
+              });
+              console.log('📡 New event received via WebSocket:', message.event.headline);
+            } else if (message.type === 'status') {
+              console.log('📊 Server status:', message.message);
+            }
+          } catch (error) {
+            console.error('Failed to parse WebSocket message:', error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('❌ WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          console.log('⚠️  WebSocket disconnected');
+          // Attempt to reconnect
+          if (reconnectAttempts < maxReconnectAttempts && !demoMode) {
+            reconnectAttempts++;
+            console.log(`🔄 Attempting to reconnect... (${reconnectAttempts}/${maxReconnectAttempts})`);
+            setTimeout(connect, reconnectDelay);
+          }
+        };
+      } catch (error) {
+        console.error('Failed to connect WebSocket:', error);
+      }
+    };
+
+    connect();
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
   }, [demoMode]);
 
   const handleRefresh = () => {
@@ -166,6 +217,7 @@ export default function App() {
                 {/* Ripple Graph */}
                 {activeEvent && (
                   <RippleGraph
+                    event={activeEvent}
                     logicChain={activeEvent.logic_chain}
                     severity={activeEvent.severity}
                   />

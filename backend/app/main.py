@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.mongodb import mongodb_connection
 from app.db.repository import EventRepository
+from app.websocket_manager import websocket_manager
 from typing import Optional
 import json
 import os
@@ -255,6 +256,7 @@ async def analyze_news(request: AnalyzeRequest):
     """
     Analyze news and generate predictions.
     Uses the rule-based analysis pipeline for deterministic ripple-graph output.
+    Broadcasts new events to all connected WebSocket clients in real-time.
     """
     headline_lower = request.headline.lower()
     article = {
@@ -269,8 +271,44 @@ async def analyze_news(request: AnalyzeRequest):
         "context_meta": {"context_confidence": 0.72},
     }
     event = analysis_orchestrator.analyze_and_store(article)
+    
+    # Broadcast the new event to all connected WebSocket clients
+    try:
+        await websocket_manager.broadcast_event(event)
+    except Exception as e:
+        print(f"⚠️  Failed to broadcast event via WebSocket: {e}")
 
     return {"status": "success", "data": event}
+
+
+@app.websocket("/ws/events")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time event streaming
+    Clients connect and receive new events as they are ingested/processed
+    """
+    await websocket_manager.connect(websocket)
+    try:
+        # Send initial connection status
+        await websocket_manager.send_connection_status(websocket, "connected")
+        
+        # Keep connection alive and listen for any client messages
+        # (mostly for heartbeat/ping-pong, the server broadcasts events autonomously)
+        while True:
+            data = await websocket.receive_text()
+            # Can handle client messages if needed (e.g., filters, subscriptions)
+            if data:
+                # Echo acknowledgment
+                await websocket.send_json({
+                    "type": "ack",
+                    "message": "Message received"
+                })
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket)
+        print(f"⚠️  Client disconnected. Active connections: {len(websocket_manager.active_connections)}")
+    except Exception as e:
+        print(f"❌ WebSocket error: {e}")
+        websocket_manager.disconnect(websocket)
 
 
 @app.get("/api/health")
