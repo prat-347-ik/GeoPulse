@@ -23,6 +23,14 @@ from app.db.schemas import (
 from app.services.orchestrator import analysis_orchestrator
 from app.nlp.pipeline import enrich_article_with_nlp
 from app.nlp.llm_client import warmup_local_llm
+from app.validation.market_validator import validate_event_assets
+from app.core.config import (
+    ENABLE_BACKGROUND_VALIDATOR,
+    BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
+    BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
+    BACKGROUND_VALIDATOR_BATCH_SIZE,
+)
+from workers.scheduler import BackgroundValidatorScheduler
 
 app = FastAPI(
     title="GeoPulse AI API",
@@ -43,7 +51,6 @@ app.add_middleware(
 
 # Load mock data
 MOCK_DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "mock_data", "mock_data.json")
-MOCK_VALIDATIONS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "mock_data", "mock_validations.json")
 
 
 def load_mock_events():
@@ -54,26 +61,18 @@ def load_mock_events():
         return []
 
 
-def load_mock_validations():
-    try:
-        with open(MOCK_VALIDATIONS_PATH, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
-
-
 # In-memory storage (would be MongoDB in production)
 events_store = analysis_orchestrator.event_store
-validations_store = load_mock_validations()
 
 # Repository instance (initialized at startup)
 event_repo: Optional[EventRepository] = None
+background_validator: Optional[BackgroundValidatorScheduler] = None
 
 
 @app.on_event("startup")
 async def startup_db_client():
     """Initialize MongoDB connection and create indexes"""
-    global event_repo
+    global event_repo, background_validator
     try:
         await mongodb_connection.connect()
         db = mongodb_connection.get_db()
@@ -84,14 +83,38 @@ async def startup_db_client():
         # Best-effort async warmup to reduce first-token latency for local LLM.
         if os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true":
             asyncio.create_task(warmup_local_llm())
+
+        if ENABLE_BACKGROUND_VALIDATOR:
+            background_validator = BackgroundValidatorScheduler(
+                event_store=events_store,
+                event_repo=event_repo,
+                interval_seconds=BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
+                lookback_hours=BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
+                batch_size=BACKGROUND_VALIDATOR_BATCH_SIZE,
+            )
+            background_validator.start()
     except Exception as e:
         print(f"⚠️  Could not connect to MongoDB: {e}")
         print("Using in-memory storage as fallback")
+
+        if ENABLE_BACKGROUND_VALIDATOR:
+            background_validator = BackgroundValidatorScheduler(
+                event_store=events_store,
+                event_repo=None,
+                interval_seconds=BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
+                lookback_hours=BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
+                batch_size=BACKGROUND_VALIDATOR_BATCH_SIZE,
+            )
+            background_validator.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     """Close MongoDB connection on shutdown"""
+    global background_validator
+    if background_validator is not None:
+        await background_validator.stop()
+        background_validator = None
     await mongodb_connection.disconnect()
 
 
@@ -118,25 +141,45 @@ async def get_event(event_id: str):
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
-    # Include validation info if available
-    validation = next(
-        (v for v in validations_store if v.get("event_id") == event_id),
-        None,
-    )
-    
     return {
         "status": "success",
         "data": event,
-        "validation": validation,
+        "validation": event.get("validation_summary"),
     }
 
 
 @app.get("/api/validations", response_model=ValidationResponse)
 async def get_validations(limit: int = Query(20, ge=1, le=100)):
     """Get validation results."""
+    events = analysis_orchestrator.list_events(limit=200)
+    materialized_validations = []
+
+    for event in events:
+        for asset in event.get("affected_assets", []):
+            validation_status = asset.get("validation_status")
+            if not validation_status:
+                continue
+
+            actual_move_pct = asset.get("actual_move_pct")
+            materialized_validations.append(
+                {
+                    "event_id": event.get("event_id", ""),
+                    "headline": event.get("headline", ""),
+                    "predicted_direction": asset.get("prediction", "NEUTRAL"),
+                    "predicted_ticker": asset.get("ticker", ""),
+                    "predicted_confidence": asset.get("confidence", 0.5),
+                    "horizon": "1d",
+                    "price_at_event": 0.0,
+                    "price_at_validation": 0.0,
+                    "actual_change_percent": actual_move_pct if actual_move_pct is not None else 0.0,
+                    "status": validation_status,
+                    "validated_at": asset.get("validated_at"),
+                }
+            )
+
     sorted_validations = sorted(
-        validations_store,
-        key=lambda x: x.get("validated_at", ""),
+        materialized_validations,
+        key=lambda x: x.get("validated_at") or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )[:limit]
     return {"status": "success", "data": sorted_validations}
@@ -151,69 +194,36 @@ async def validate_event(
     event = analysis_orchestrator.get_event(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    
-    # Check existing validation
-    existing = next(
-        (v for v in validations_store 
-         if v.get("event_id") == event_id and v.get("horizon") == horizon),
-        None,
-    )
-    
-    if existing:
-        return {"status": "success", "data": existing}
-    
-    # Generate mock validation (in production, would fetch real prices)
-    if event.get("affected_assets"):
-        asset = event["affected_assets"][0]
-        predicted_direction = asset.get("prediction", "NEUTRAL")
-        predicted_confidence = asset.get("confidence", 0.5)
-        predicted_ticker = asset.get("ticker", "SPY")
-        
-        # Simulate price movement
-        mock_price_at_event = 100.0
-        # 70% chance to match prediction (for demo purposes)
-        direction_matches = random.random() < 0.70
-        
-        if predicted_direction == "BULLISH":
-            change = random.uniform(0.5, 3.0) if direction_matches else random.uniform(-3.0, -0.5)
-        elif predicted_direction == "BEARISH":
-            change = random.uniform(-3.0, -0.5) if direction_matches else random.uniform(0.5, 3.0)
-        else:
-            change = random.uniform(-1.0, 1.0)
-        
-        mock_price_at_validation = mock_price_at_event * (1 + change / 100)
-        
-        # Determine if prediction was correct
-        thresholds = {"1h": 0.5, "6h": 1.5, "24h": 3.0}
-        threshold = thresholds.get(horizon, 1.0)
-        
-        if predicted_direction == "BULLISH" and change > threshold:
-            status = "CORRECT"
-        elif predicted_direction == "BEARISH" and change < -threshold:
-            status = "CORRECT"
-        elif abs(change) < threshold:
-            status = "PENDING"
-        else:
-            status = "INCORRECT"
-        
-        validation = {
+
+    validated_event = await asyncio.to_thread(validate_event_assets, event)
+
+    # Keep in-memory store consistent with latest validated payload.
+    events_store.upsert(validated_event)
+
+    if event_repo is not None:
+        try:
+            await event_repo.update_validation_fields(
+                event_id=event_id,
+                affected_assets=validated_event.get("affected_assets", []),
+                validation_summary=validated_event.get("validation_summary", {}),
+                is_validated=bool(validated_event.get("is_validated", False)),
+            )
+        except Exception as exc:
+            print(f"⚠️  Could not persist validation update for {event_id}: {exc}")
+
+    summary = validated_event.get("validation_summary", {})
+    return {
+        "status": "success",
+        "data": {
             "event_id": event_id,
-            "headline": event.get("headline", ""),
-            "predicted_direction": predicted_direction,
-            "predicted_ticker": predicted_ticker,
-            "predicted_confidence": predicted_confidence,
             "horizon": horizon,
-            "price_at_event": mock_price_at_event,
-            "price_at_validation": round(mock_price_at_validation, 2),
-            "actual_change_percent": round(change, 2),
-            "status": status,
-            "validated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        }
-        
-        validations_store.append(validation)
-        return {"status": "success", "data": validation}
-    
-    raise HTTPException(status_code=400, detail="No assets to validate")
+            "correct": summary.get("correct", 0),
+            "incorrect": summary.get("incorrect", 0),
+            "pending": summary.get("pending", 0),
+            "accuracy": summary.get("accuracy", 0.0),
+            "affected_assets": validated_event.get("affected_assets", []),
+        },
+    }
 
 
 @app.get("/api/price")
@@ -279,6 +289,12 @@ async def analyze_news(request: AnalyzeRequest):
         "context_meta": {"context_confidence": 0.72},
     }
     event = await analysis_orchestrator.analyze_and_store_async(article)
+
+    if event_repo is not None:
+        try:
+            await event_repo.upsert_event(event)
+        except Exception as exc:
+            print(f"⚠️  Could not persist analyzed event {event.get('event_id', '')}: {exc}")
     
     # Broadcast the new event to all connected WebSocket clients
     try:
@@ -373,11 +389,17 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/health")
 async def health_check():
+    validations_count = sum(
+        1
+        for event in analysis_orchestrator.list_events(limit=200)
+        for asset in event.get("affected_assets", [])
+        if asset.get("validation_status")
+    )
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "events_count": analysis_orchestrator.event_count(),
-        "validations_count": len(validations_store),
+        "validations_count": validations_count,
     }
 
 

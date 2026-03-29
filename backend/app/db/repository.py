@@ -5,7 +5,7 @@ Handles all database operations for events with optimized indexes and queries
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.db.schemas import Event
 
 
@@ -100,6 +100,45 @@ class EventRepository:
         
         result = await self.collection.insert_one(event_data)
         return str(result.inserted_id)
+
+    async def upsert_event(self, event_data: Dict[str, Any]) -> Optional[str]:
+        """Create or update an event using event_id as natural key."""
+        event_id = event_data.get("event_id")
+        if not event_id:
+            return None
+
+        if "ingested_at" not in event_data:
+            event_data["ingested_at"] = datetime.utcnow()
+
+        await self.collection.update_one(
+            {"event_id": event_id},
+            {
+                "$set": event_data,
+                "$setOnInsert": {"created_at": datetime.utcnow()},
+            },
+            upsert=True,
+        )
+        return str(event_id)
+
+    async def update_validation_fields(
+        self,
+        event_id: str,
+        affected_assets: List[Dict[str, Any]],
+        validation_summary: Dict[str, Any],
+        is_validated: bool,
+    ) -> bool:
+        """Update market validation data for an existing event."""
+        result = await self.collection.update_one(
+            {"event_id": event_id},
+            {
+                "$set": {
+                    "affected_assets": affected_assets,
+                    "validation_summary": validation_summary,
+                    "is_validated": is_validated,
+                }
+            },
+        )
+        return result.matched_count > 0
     
     async def get_event_by_id(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Get specific event by ID"""
@@ -335,6 +374,56 @@ class EventRepository:
             event["_id"] = str(event["_id"])
         
         return events
+
+    async def get_recent_unvalidated_events(
+        self,
+        hours_ago: int = 24,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get recent events that are unvalidated or still pending validation."""
+        cursor = self.collection.find(
+            {
+                "$or": [
+                    {"is_validated": {"$ne": True}},
+                    {"affected_assets.validation_status": "PENDING"},
+                    {"affected_assets.validation_status": {"$exists": False}},
+                ]
+            }
+        ).sort([("timestamp", -1)]).limit(limit * 3)
+
+        events = await cursor.to_list(length=limit * 3)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+
+        filtered: List[Dict[str, Any]] = []
+        for event in events:
+            event_timestamp = event.get("timestamp")
+            include_event = True
+
+            if isinstance(event_timestamp, datetime):
+                normalized = event_timestamp
+                if normalized.tzinfo is None:
+                    normalized = normalized.replace(tzinfo=timezone.utc)
+                include_event = normalized >= cutoff
+            elif isinstance(event_timestamp, str):
+                normalized_str = event_timestamp.replace("Z", "+00:00")
+                try:
+                    parsed = datetime.fromisoformat(normalized_str)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    include_event = parsed >= cutoff
+                except ValueError:
+                    include_event = True
+
+            if not include_event:
+                continue
+
+            event["_id"] = str(event["_id"])
+            filtered.append(event)
+
+            if len(filtered) >= limit:
+                break
+
+        return filtered
     
     # =====================================================
     # STATISTICS & ANALYTICS

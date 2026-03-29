@@ -33,6 +33,25 @@ function getAssetClassBadge(assetClass) {
   return colors[assetClass] || 'bg-gray-700 text-gray-300';
 }
 
+function getValidationBadge(status) {
+  switch (status) {
+    case 'CORRECT':
+      return 'bg-accent-green/20 text-accent-green';
+    case 'INCORRECT':
+      return 'bg-accent-red/20 text-accent-red';
+    default:
+      return 'bg-gray-700/50 text-text-secondary';
+  }
+}
+
+function formatMove(change) {
+  if (typeof change !== 'number') {
+    return 'N/A';
+  }
+  const sign = change >= 0 ? '+' : '';
+  return `${sign}${change.toFixed(2)}%`;
+}
+
 export default function AssetCard({ asset, onClick }) {
   // Handle missing or invalid data from live backend
   if (!asset || !asset.ticker) {
@@ -45,6 +64,8 @@ export default function AssetCard({ asset, onClick }) {
   const assetClass = asset.asset_class || 'Unknown';
   const name = asset.name || asset.ticker;
   const reason = asset.reason || 'No analysis available';
+  const validationStatus = asset.validation_status || null;
+  const actualMove = typeof asset.actual_move_pct === 'number' ? asset.actual_move_pct : null;
 
   return (
     <motion.div
@@ -97,6 +118,19 @@ export default function AssetCard({ asset, onClick }) {
 
       {/* Reason */}
       <p className="text-xs text-text-secondary line-clamp-2">{reason}</p>
+
+      {validationStatus && (
+        <div className="mt-3 flex items-center justify-between">
+          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${getValidationBadge(validationStatus)}`}>
+            {validationStatus}
+          </span>
+          <span className={`text-xs font-semibold ${
+            actualMove === null ? 'text-text-secondary' : actualMove >= 0 ? 'text-accent-green' : 'text-accent-red'
+          }`}>
+            {formatMove(actualMove)}
+          </span>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -112,6 +146,8 @@ export function AssetModal({ asset, onClose, priceData }) {
   const name = asset.name || asset.ticker;
   const sector = asset.sector || 'Unknown';
   const reason = asset.reason || 'No analysis available';
+  const validationStatus = asset.validation_status || 'PENDING';
+  const actualMove = typeof asset.actual_move_pct === 'number' ? asset.actual_move_pct : null;
 
   return (
     <motion.div
@@ -172,6 +208,18 @@ export function AssetModal({ asset, onClose, priceData }) {
           <div className="flex items-center justify-between py-2 border-b border-gray-800">
             <span className="text-text-secondary">Confidence</span>
             <span className="text-white font-semibold">{confidencePercent}%</span>
+          </div>
+          <div className="flex items-center justify-between py-2 border-b border-gray-800">
+            <span className="text-text-secondary">Validation</span>
+            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getValidationBadge(validationStatus)}`}>
+              {validationStatus}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-2 border-b border-gray-800">
+            <span className="text-text-secondary">Actual Move (1d)</span>
+            <span className={`${actualMove === null ? 'text-text-secondary' : actualMove >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+              {formatMove(actualMove)}
+            </span>
           </div>
         </div>
 

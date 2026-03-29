@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -8,8 +9,10 @@ import threading
 from typing import Any
 
 from app.analysis.pipeline import AnalysisPipeline
+from app.core.config import ENABLE_MARKET_VALIDATION
 from app.nlp.pipeline import enrich_article_with_nlp
 from app.nlp.pipeline import enrich_article_with_nlp_async
+from app.validation.market_validator import validate_event_assets
 
 
 def _mock_data_path() -> Path:
@@ -85,6 +88,19 @@ class EventStore:
 			self._events.insert(0, deepcopy(event))
 			return deepcopy(event)
 
+	def upsert(self, event: dict[str, Any]) -> dict[str, Any]:
+		event_id = event.get("event_id")
+		if not event_id:
+			return self.add(event)
+
+		with self._lock:
+			for idx, existing in enumerate(self._events):
+				if existing.get("event_id") == event_id:
+					self._events[idx] = deepcopy(event)
+					return deepcopy(event)
+			self._events.insert(0, deepcopy(event))
+			return deepcopy(event)
+
 	def list(self, limit: int | None = None) -> list[dict[str, Any]]:
 		with self._lock:
 			events = sorted(
@@ -133,10 +149,14 @@ class AnalysisOrchestrator:
 
 	def analyze_and_store(self, article: dict[str, Any]) -> dict[str, Any]:
 		event = self.analyze_with_nlp(article)
+		if ENABLE_MARKET_VALIDATION:
+			event = validate_event_assets(event)
 		return self.event_store.add(event)
 
 	async def analyze_and_store_async(self, article: dict[str, Any]) -> dict[str, Any]:
 		event = await self.analyze_with_nlp_async(article)
+		if ENABLE_MARKET_VALIDATION:
+			event = await asyncio.to_thread(validate_event_assets, event)
 		return self.event_store.add(event)
 
 	def list_events(self, limit: int = 10) -> list[dict[str, Any]]:

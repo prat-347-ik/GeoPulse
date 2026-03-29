@@ -76,12 +76,22 @@ class AffectedAsset(BaseModel):
     prediction: PredictionEnum
     confidence: float = Field(ge=0, le=1)
     reason: str = Field(max_length=200)
+    actual_move_pct: Optional[float] = None
+    validation_status: Optional[str] = None
+    validated_at: Optional[datetime] = None
 
 
 class SectorImpact(BaseModel):
     sector: str
     direction: SectorImpactDirectionEnum
     weight: float = Field(ge=-1, le=1)
+
+
+class ValidationSummary(BaseModel):
+    correct: int = 0
+    incorrect: int = 0
+    pending: int = 0
+    accuracy: float = Field(default=0.0, ge=0, le=1)
 
 
 class Event(BaseModel):
@@ -111,6 +121,7 @@ class Event(BaseModel):
     impact_score: Optional[float] = Field(None, ge=0, le=1)
     is_validated: bool = False
     actual_move: Optional[float] = None
+    validation_summary: Optional[ValidationSummary] = None
 
 
 class EventCreate(BaseModel):
@@ -138,6 +149,7 @@ class EventCreate(BaseModel):
     impact_score: Optional[float] = Field(None, ge=0, le=1)
     is_validated: bool = False
     actual_move: Optional[float] = None
+    validation_summary: Optional[ValidationSummary] = None
 
 
 class ValidationStatus(str, Enum):
