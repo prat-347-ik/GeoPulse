@@ -1,8 +1,5 @@
-import mockEvents from '../data/mock_data.json';
-import mockValidations from '../data/mock_validations.json';
-
-// Use backend URL from environment or default to localhost
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// API configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
 /**
@@ -10,17 +7,21 @@ const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
  * @param {number} limit - Maximum number of events to fetch (default: 10, max: 50)
  * @returns {Promise<Array>} List of events
  */
-export async function fetchEvents(limit = 10) {
+export async function getEvents(limit = 10) {
   try {
-    const response = await fetch(`${API_BASE}/events?limit=${Math.min(limit, 50)}`);
+    const response = await fetch(`${API_BASE_URL}/events?limit=${Math.min(limit, 50)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    // Extract events from response - handle both {data: []} and direct array formats
     return Array.isArray(data) ? data : data.data || [];
   } catch (error) {
     console.error('Failed to fetch events:', error);
-    throw error;
+    return [];
   }
+}
+
+// Alias for backward compatibility
+export function fetchEvents(limit = 10) {
+  return getEvents(limit);
 }
 
 /**
@@ -30,7 +31,7 @@ export async function fetchEvents(limit = 10) {
  */
 export async function fetchEvent(eventId) {
   try {
-    const response = await fetch(`${API_BASE}/events/${eventId}`);
+    const response = await fetch(`${API_BASE_URL}/events/${eventId}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     return data.data || data;
@@ -45,16 +46,21 @@ export async function fetchEvent(eventId) {
  * @param {number} limit - Maximum number of validations to fetch (default: 20, max: 100)
  * @returns {Promise<Array>} List of validations
  */
-export async function fetchValidations(limit = 20) {
+export async function getValidations(limit = 20) {
   try {
-    const response = await fetch(`${API_BASE}/validations?limit=${Math.min(limit, 100)}`);
+    const response = await fetch(`${API_BASE_URL}/validations?limit=${Math.min(limit, 100)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     return Array.isArray(data) ? data : data.data || [];
   } catch (error) {
     console.error('Failed to fetch validations:', error);
-    throw error;
+    return [];
   }
+}
+
+// Alias for backward compatibility
+export function fetchValidations(limit = 20) {
+  return getValidations(limit);
 }
 
 /**
@@ -65,13 +71,32 @@ export async function fetchValidations(limit = 20) {
  */
 export async function validateEvent(eventId, horizon = '24h') {
   try {
-    const response = await fetch(`${API_BASE}/validate/${eventId}?horizon=${horizon}`);
+    const response = await fetch(`${API_BASE_URL}/validate/${eventId}?horizon=${horizon}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     return data.data || data;
   } catch (error) {
     console.error(`Failed to validate event ${eventId}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Simulate a scenario without persisting
+ */
+export async function simulateScenario(scenarioText) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario: scenarioText }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    return data.data || null;
+  } catch (error) {
+    console.error('Failed to simulate scenario:', error);
+    return null;
   }
 }
 
@@ -83,7 +108,7 @@ export async function validateEvent(eventId, horizon = '24h') {
  */
 export async function fetchPrice(ticker, range = '1d') {
   try {
-    const response = await fetch(`${API_BASE}/price?ticker=${ticker}&range=${range}`);
+    const response = await fetch(`${API_BASE_URL}/price?ticker=${ticker}&range=${range}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } catch (error) {
@@ -114,11 +139,13 @@ export function connectWebSocket() {
   return ws;
 }
 
-// For demo/fallback mode, expose mock data functions
+// Backward compatibility stubs for old code
 export function getMockEvents() {
-  return mockEvents;
+  console.warn('getMockEvents is deprecated, use getEvents() instead');
+  return [];
 }
 
 export function getMockValidations() {
-  return mockValidations;
+  console.warn('getMockValidations is deprecated, use getValidations() instead');
+  return [];
 }

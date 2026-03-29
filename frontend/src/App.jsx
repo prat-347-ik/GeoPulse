@@ -7,7 +7,7 @@ import RippleGraph from './components/RippleGraph';
 import ValidationPanel from './components/ValidationPanel';
 import { AssetModal } from './components/AssetCard';
 import RightPanel, { MobileRightPanel } from './components/RightPanel';
-import { getMockEvents, getMockValidations, fetchEvents, fetchValidations, connectWebSocket } from './lib/api';
+import { getEvents, getValidations, connectWebSocket } from './lib/api';
 
 export default function App() {
   const [demoMode, setDemoMode] = useState(true);
@@ -42,49 +42,34 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      if (demoMode) {
-        const mockEvts = getMockEvents();
-        const mockVals = getMockValidations();
-        setEvents(mockEvts);
-        setValidations(mockVals);
-        if (mockEvts.length > 0 && !activeEventId) {
-          setActiveEventId(mockEvts[0].event_id);
-        }
-      } else {
-        const [evts, vals] = await Promise.all([fetchEvents(), fetchValidations()]);
-        setEvents(evts);
-        setValidations(vals);
-        if (evts.length > 0 && !activeEventId) {
-          setActiveEventId(evts[0].event_id);
-        }
+      const [evts, vals] = await Promise.all([
+        getEvents(50),
+        getValidations(20),
+      ]);
+      setEvents(evts);
+      setValidations(vals);
+      if (evts.length > 0 && !activeEventId) {
+        setActiveEventId(evts[0].event_id);
       }
     } catch (error) {
-      console.error('Failed to load data:', error);
-      // Fallback to mock
-      const mockEvts = getMockEvents();
-      const mockVals = getMockValidations();
-      setEvents(mockEvts);
-      setValidations(mockVals);
-      if (mockEvts.length > 0) {
-        setActiveEventId(mockEvts[0].event_id);
-      }
+      console.error('Failed to load data from API:', error);
+      setEvents([]);
+      setValidations([]);
     } finally {
       setLoading(false);
     }
-  }, [demoMode, activeEventId]);
+  }, [activeEventId]);
 
   useEffect(() => {
     loadData();
-  }, [demoMode]);
+  }, [activeEventId]);
 
   // WebSocket connection for real-time events
   useEffect(() => {
-    if (demoMode) return;
-
     let ws = null;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
-    const reconnectDelay = 3000; // 3 seconds
+    const reconnectDelay = 3000;
 
     const connect = () => {
       try {
@@ -92,7 +77,7 @@ export default function App() {
 
         ws.onopen = () => {
           console.log('✅ WebSocket connected for real-time events');
-          reconnectAttempts = 0; // Reset reconnect counter on successful connection
+          reconnectAttempts = 0;
         };
 
         ws.onmessage = (event) => {
@@ -100,9 +85,7 @@ export default function App() {
             const message = JSON.parse(event.data);
 
             if (message.type === 'new_event' && message.event) {
-              // Prepend new event to the beginning of the events array
               setEvents((prevEvents) => {
-                // Avoid duplicates
                 if (prevEvents.find((e) => e.event_id === message.event.event_id)) {
                   return prevEvents;
                 }
@@ -122,9 +105,8 @@ export default function App() {
         };
 
         ws.onclose = () => {
-          console.log('⚠️  WebSocket disconnected');
-          // Attempt to reconnect
-          if (reconnectAttempts < maxReconnectAttempts && !demoMode) {
+          console.log('⚠️ WebSocket disconnected');
+          if (reconnectAttempts < maxReconnectAttempts) {
             reconnectAttempts++;
             console.log(`🔄 Attempting to reconnect... (${reconnectAttempts}/${maxReconnectAttempts})`);
             setTimeout(connect, reconnectDelay);
@@ -142,7 +124,7 @@ export default function App() {
         ws.close();
       }
     };
-  }, [demoMode]);
+  }, []);
 
   const handleRefresh = () => {
     loadData();

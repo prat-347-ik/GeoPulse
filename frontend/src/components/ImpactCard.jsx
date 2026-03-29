@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Clock, ExternalLink, AlertTriangle, TrendingUp, Info, Zap, TrendingDown } from 'lucide-react';
+import { Clock, ExternalLink, AlertTriangle, TrendingUp, Info, Zap, TrendingDown, Sparkles, Cog } from 'lucide-react';
 import AssetCard from './AssetCard';
 
 function getSeverityColor(severity) {
@@ -67,6 +67,28 @@ function getSectorDirectionIcon(direction) {
     default:
       return <Zap className="w-4 h-4 text-text-secondary" />;
   }
+}
+
+function getExplanationSourceBadge(source) {
+  if (source === 'llm') {
+    return {
+      icon: <Sparkles className="w-3.5 h-3.5" />,
+      text: '✨ AI Synthesized',
+      bgClass: 'bg-indigo-900/40 text-indigo-300 border border-indigo-500/50',
+    };
+  }
+  if (source === 'deterministic_fallback') {
+    return {
+      icon: <Cog className="w-3.5 h-3.5" />,
+      text: '⚙️ Rule Engine Fallback',
+      bgClass: 'bg-slate-700/40 text-slate-300 border border-slate-600/50',
+    };
+  }
+  return {
+    icon: <Info className="w-3.5 h-3.5" />,
+    text: 'Analysis',
+    bgClass: 'bg-gray-700/40 text-gray-300 border border-gray-600/50',
+  };
 }
 
 function ConfidenceRing({ confidence }) {
@@ -152,6 +174,16 @@ export default function ImpactCard({ event, onAssetClick }) {
               </span>
             </div>
 
+            {/* NLP Transparency Badge */}
+            {event.explanation_source && (
+              <div className="mb-3">
+                <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${getExplanationSourceBadge(event.explanation_source).bgClass}`}>
+                  {getExplanationSourceBadge(event.explanation_source).icon}
+                  {getExplanationSourceBadge(event.explanation_source).text}
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center gap-4 text-sm text-text-secondary">
               <div className="flex items-center gap-1">
                 <ExternalLink className="w-4 h-4" />
@@ -187,12 +219,12 @@ export default function ImpactCard({ event, onAssetClick }) {
         </div>
       </div>
 
-      {/* Why Explanation */}
+      {/* Why Explanation with NLP Source */}
       <div className="flex items-start gap-3 p-4 bg-accent-blue/10 border border-accent-blue/30 rounded-card">
         <Info className="w-5 h-5 text-accent-blue flex-shrink-0 mt-0.5" />
-        <div>
+        <div className="flex-1">
           <p className="text-xs text-accent-blue font-semibold mb-1">Analysis Summary</p>
-          <p className="text-sm text-white">{event.why}</p>
+          <p className="text-sm text-white">{event.summary_explanation || event.why}</p>
         </div>
       </div>
 
