@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 from app.db.mongodb import mongodb_connection
 from app.db.repository import EventRepository
 from app.websocket_manager import websocket_manager
@@ -17,8 +18,11 @@ from app.db.schemas import (
     PriceData,
     PricePoint,
     AnalyzeRequest,
+    SimulateRequest,
 )
 from app.services.orchestrator import analysis_orchestrator
+from app.nlp.pipeline import enrich_article_with_nlp
+from app.nlp.llm_client import warmup_local_llm
 
 app = FastAPI(
     title="GeoPulse AI API",
@@ -76,6 +80,10 @@ async def startup_db_client():
         event_repo = EventRepository(db)
         await event_repo.create_all_indexes()
         print("✅ Database initialized successfully")
+
+        # Best-effort async warmup to reduce first-token latency for local LLM.
+        if os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true":
+            asyncio.create_task(warmup_local_llm())
     except Exception as e:
         print(f"⚠️  Could not connect to MongoDB: {e}")
         print("Using in-memory storage as fallback")
@@ -270,7 +278,7 @@ async def analyze_news(request: AnalyzeRequest):
         "prediction_horizon": "SHORT_TERM",
         "context_meta": {"context_confidence": 0.72},
     }
-    event = analysis_orchestrator.analyze_and_store(article)
+    event = await analysis_orchestrator.analyze_and_store_async(article)
     
     # Broadcast the new event to all connected WebSocket clients
     try:
@@ -279,6 +287,58 @@ async def analyze_news(request: AnalyzeRequest):
         print(f"⚠️  Failed to broadcast event via WebSocket: {e}")
 
     return {"status": "success", "data": event}
+
+
+@app.post("/api/simulate")
+async def simulate_scenario(request: SimulateRequest):
+    """Run deterministic + NLP augmentation for a scenario without persisting."""
+    scenario = request.scenario.strip()
+    if not scenario:
+        raise HTTPException(status_code=400, detail="Scenario cannot be empty")
+
+    scenario_lower = scenario.lower()
+    article = {
+        "headline": scenario,
+        "description": scenario,
+        "source": "Scenario Simulator",
+        "timestamp": datetime.now(timezone.utc),
+        "severity": "HIGH" if any(word in scenario_lower for word in ["war", "attack", "ban", "tariff", "sanction"]) else "MEDIUM",
+        "event_sentiment": "NEGATIVE" if any(word in scenario_lower for word in ["ban", "war", "attack", "sanction"]) else "MIXED",
+        "market_pressure": "RISK_OFF" if any(word in scenario_lower for word in ["ban", "war", "attack", "sanction"]) else "DEFENSIVE",
+        "prediction_horizon": "SHORT_TERM",
+        "context_meta": {"context_confidence": 0.7},
+        "text": scenario,
+    }
+
+    use_local_llm = os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true"
+    deterministic_results = analysis_orchestrator.analyze(article)
+    if use_local_llm:
+        # Phase 1 rollout: simulate endpoint uses async LLM path first.
+        from app.nlp.pipeline import enrich_article_with_nlp_async
+
+        enriched_results = await enrich_article_with_nlp_async(
+            article=article,
+            deterministic_results=deterministic_results,
+            use_local_llm=True,
+        )
+    else:
+        enriched_results = enrich_article_with_nlp(article, deterministic_results)
+
+    return {
+        "status": "success",
+        "data": {
+            "headline": enriched_results.get("headline"),
+            "event_type": enriched_results.get("event_type"),
+            "confidence": enriched_results.get("confidence"),
+            "sector_impacts": enriched_results.get("sector_impacts", []),
+            "affected_assets": enriched_results.get("affected_assets", []),
+            "entities": enriched_results.get("entities", {"organizations": [], "locations": [], "people": []}),
+            "explanation": enriched_results.get("explanation", enriched_results.get("summary_explanation", "")),
+            "explanation_source": enriched_results.get("explanation_source", "deterministic_fallback"),
+            "llm_latency_ms": enriched_results.get("llm_latency_ms", 0.0),
+            "summary_explanation": enriched_results.get("summary_explanation", ""),
+        },
+    }
 
 
 @app.websocket("/ws/events")

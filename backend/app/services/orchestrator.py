@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import threading
 from typing import Any
 
 from app.analysis.pipeline import AnalysisPipeline
+from app.nlp.pipeline import enrich_article_with_nlp
+from app.nlp.pipeline import enrich_article_with_nlp_async
 
 
 def _mock_data_path() -> Path:
@@ -113,8 +116,27 @@ class AnalysisOrchestrator:
 	def analyze(self, article: dict[str, Any]) -> dict[str, Any]:
 		return self.pipeline.analyze(article)
 
+	def analyze_with_nlp(self, article: dict[str, Any]) -> dict[str, Any]:
+		deterministic = self.analyze(article)
+		return enrich_article_with_nlp(article, deterministic)
+
+	async def analyze_with_nlp_async(self, article: dict[str, Any]) -> dict[str, Any]:
+		deterministic = self.analyze(article)
+		use_local_llm = os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true"
+		if not use_local_llm:
+			return enrich_article_with_nlp(article, deterministic)
+		return await enrich_article_with_nlp_async(
+			article=article,
+			deterministic_results=deterministic,
+			use_local_llm=True,
+		)
+
 	def analyze_and_store(self, article: dict[str, Any]) -> dict[str, Any]:
-		event = self.analyze(article)
+		event = self.analyze_with_nlp(article)
+		return self.event_store.add(event)
+
+	async def analyze_and_store_async(self, article: dict[str, Any]) -> dict[str, Any]:
+		event = await self.analyze_with_nlp_async(article)
 		return self.event_store.add(event)
 
 	def list_events(self, limit: int = 10) -> list[dict[str, Any]]:

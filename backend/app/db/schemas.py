@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import Dict, List, Optional, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -102,6 +102,36 @@ class Event(BaseModel):
     logic_chain: List[LogicChainNode]
     why: str = Field(max_length=500)
     meta: EventMeta
+    entities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+    summary_explanation: Optional[str] = ""
+    explanation_source: Optional[str] = None
+    tags: Optional[List[str]] = None
+    region: Optional[str] = None
+    cluster_id: Optional[str] = None
+    impact_score: Optional[float] = Field(None, ge=0, le=1)
+    is_validated: bool = False
+    actual_move: Optional[float] = None
+
+
+class EventCreate(BaseModel):
+    headline: str
+    source: str
+    timestamp: datetime
+    event_type: str
+    severity: SeverityEnum
+    event_sentiment: SentimentEnum
+    confidence: float = Field(ge=0, le=1)
+    macro_effect: str
+    market_pressure: MarketPressureEnum
+    prediction_horizon: HorizonEnum
+    sector_impacts: List[SectorImpact]
+    affected_assets: List[AffectedAsset]
+    logic_chain: List[LogicChainNode]
+    why: str = Field(max_length=500)
+    meta: EventMeta
+    entities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+    summary_explanation: Optional[str] = ""
+    explanation_source: Optional[str] = None
     tags: Optional[List[str]] = None
     region: Optional[str] = None
     cluster_id: Optional[str] = None
@@ -135,6 +165,28 @@ class AnalyzeRequest(BaseModel):
     source: str = "Unknown"
     timestamp: Optional[datetime] = None
     text: Optional[str] = None
+
+
+class SimulateRequest(BaseModel):
+    scenario: str = Field(min_length=3, max_length=500)
+
+
+class SimulateData(BaseModel):
+    headline: Optional[str] = None
+    event_type: Optional[str] = None
+    confidence: Optional[float] = None
+    sector_impacts: List[Dict[str, object]] = Field(default_factory=list)
+    affected_assets: List[Dict[str, object]] = Field(default_factory=list)
+    entities: Dict[str, List[str]] = Field(default_factory=dict)
+    summary_explanation: str = ""
+    explanation_source: Optional[str] = None
+    explanation: Optional[str] = None
+    llm_latency_ms: Optional[float] = 0.0
+
+
+class SimulateResponse(BaseModel):
+    status: str = "success"
+    data: SimulateData
 
 
 class EventsResponse(BaseModel):

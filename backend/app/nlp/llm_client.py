@@ -1,0 +1,177 @@
+"""Async local LLM client with strict timeout and safe fallback."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import time
+from urllib import request as urllib_request
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TIMEOUT_SECONDS = 2.5
+_CONSECUTIVE_FAILURES = 0
+_CIRCUIT_OPEN_UNTIL = 0.0
+
+
+def build_deterministic_fallback(
+    macro_effect: str,
+    top_sector: str,
+) -> str:
+    macro = (macro_effect or "cross-sector repricing").strip()
+    sector = (top_sector or "broad market sectors").strip()
+    return f"Event drives {macro}, impacting {sector}."
+
+
+def _ollama_sync_generate(prompt: str) -> str:
+    """Blocking Ollama call, intended to run in a worker thread."""
+    base_url = os.getenv("NLP_LLM_BASE_URL", "http://localhost:11434")
+    model = os.getenv("NLP_LLM_MODEL", "llama3.1:8b-instruct")
+    endpoint = f"{base_url.rstrip('/')}/api/generate"
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": float(os.getenv("NLP_LLM_TEMPERATURE", "0.2")),
+            "num_predict": int(os.getenv("NLP_LLM_MAX_TOKENS", "120")),
+        },
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib_request.Request(
+        endpoint,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib_request.urlopen(req, timeout=2.0) as resp:
+        body = resp.read().decode("utf-8")
+        parsed = json.loads(body)
+        return str(parsed.get("response", "")).strip()
+
+
+async def generate_local_llm_explanation(
+    prompt: str,
+    fallback_text: str,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Generate text via local LLM, bounded by wait_for timeout.
+
+    This method guarantees a non-throwing response by returning fallback_text
+    on timeout or any runtime failure.
+    """
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_ollama_sync_generate, prompt),
+            timeout=timeout_seconds,
+        )
+        if not result:
+            logger.warning("LLM returned empty response, using fallback")
+            return fallback_text
+        return result
+    except asyncio.TimeoutError:
+        logger.warning("LLM timeout, using fallback")
+        return fallback_text
+    except Exception as exc:
+        logger.warning("LLM request failed, using fallback: %s", exc)
+        return fallback_text
+
+
+def _is_circuit_open() -> bool:
+    return time.time() < _CIRCUIT_OPEN_UNTIL
+
+
+def _mark_failure() -> None:
+    global _CONSECUTIVE_FAILURES, _CIRCUIT_OPEN_UNTIL
+    _CONSECUTIVE_FAILURES += 1
+    failure_threshold = int(os.getenv("NLP_LLM_CIRCUIT_BREAKER_FAILURES", "3"))
+    cooldown_seconds = float(os.getenv("NLP_LLM_CIRCUIT_BREAKER_COOLDOWN_SEC", "30"))
+    if _CONSECUTIVE_FAILURES >= failure_threshold:
+        _CIRCUIT_OPEN_UNTIL = time.time() + cooldown_seconds
+        logger.warning(
+            "LLM circuit breaker opened for %.1fs after %d failures",
+            cooldown_seconds,
+            _CONSECUTIVE_FAILURES,
+        )
+
+
+def _mark_success() -> None:
+    global _CONSECUTIVE_FAILURES, _CIRCUIT_OPEN_UNTIL
+    _CONSECUTIVE_FAILURES = 0
+    _CIRCUIT_OPEN_UNTIL = 0.0
+
+
+async def generate_local_llm_explanation_with_meta(
+    prompt: str,
+    fallback_text: str,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, float | str]:
+    """Generate explanation with metadata for transparency and debugging.
+
+    Returns:
+      {
+        "text": str,
+        "source": "llm" | "fallback",
+        "llm_latency_ms": float,
+      }
+    """
+    if _is_circuit_open():
+        logger.warning("LLM circuit open, using fallback")
+        return {
+            "text": fallback_text,
+            "source": "fallback",
+            "llm_latency_ms": 0.0,
+        }
+
+    start = time.time()
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_ollama_sync_generate, prompt),
+            timeout=timeout_seconds,
+        )
+        latency = (time.time() - start) * 1000
+        if not result:
+            logger.warning("LLM returned empty response, using fallback")
+            _mark_failure()
+            return {
+                "text": fallback_text,
+                "source": "fallback",
+                "llm_latency_ms": round(latency, 2),
+            }
+
+        _mark_success()
+        return {
+            "text": result,
+            "source": "llm",
+            "llm_latency_ms": round(latency, 2),
+        }
+    except asyncio.TimeoutError:
+        latency = (time.time() - start) * 1000
+        logger.warning("LLM timeout, using fallback")
+        _mark_failure()
+        return {
+            "text": fallback_text,
+            "source": "fallback",
+            "llm_latency_ms": round(latency, 2),
+        }
+    except Exception as exc:
+        latency = (time.time() - start) * 1000
+        logger.warning("LLM request failed, using fallback: %s", exc)
+        _mark_failure()
+        return {
+            "text": fallback_text,
+            "source": "fallback",
+            "llm_latency_ms": round(latency, 2),
+        }
+
+
+async def warmup_local_llm() -> None:
+    """Best-effort cold-start warmup to preload model weights."""
+    prompt = "Hello"
+    fallback = "Warmup fallback."
+    _ = await generate_local_llm_explanation_with_meta(prompt=prompt, fallback_text=fallback)
