@@ -6,8 +6,21 @@ import ImpactCard from './components/ImpactCard';
 import RippleGraph from './components/RippleGraph';
 import ValidationPanel from './components/ValidationPanel';
 import { AssetModal } from './components/AssetCard';
+import BackendControlPanel from './components/BackendControlPanel';
 import RightPanel, { MobileRightPanel } from './components/RightPanel';
-import { getEvents, getValidations, connectWebSocket } from './lib/api';
+import {
+  getEvents,
+  getValidations,
+  connectWebSocket,
+  fetchEvent,
+  fetchPrice,
+  validateEvent,
+  analyzeNews,
+  simulateScenario,
+  getHealth,
+  getLlmHealth,
+  getServiceInfo,
+} from './lib/api';
 
 export default function App() {
   const [demoMode, setDemoMode] = useState(true);
@@ -16,9 +29,14 @@ export default function App() {
   const [activeEventId, setActiveEventId] = useState(null);
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
   const [mobileActiveTab, setMobileActiveTab] = useState('dashboard');
+  const [backendHealth, setBackendHealth] = useState(null);
+  const [llmHealth, setLlmHealth] = useState(null);
+  const [serviceInfo, setServiceInfo] = useState(null);
+  const [priceDataByTicker, setPriceDataByTicker] = useState({});
 
   // Get active event object
   const activeEvent = events.find((e) => e.event_id === activeEventId) || null;
@@ -42,12 +60,18 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [evts, vals] = await Promise.all([
+      const [evts, vals, health, llm, service] = await Promise.all([
         getEvents(50),
         getValidations(20),
+        getHealth(),
+        getLlmHealth(),
+        getServiceInfo(),
       ]);
       setEvents(evts);
       setValidations(vals);
+      setBackendHealth(health);
+      setLlmHealth(llm);
+      setServiceInfo(service);
       if (evts.length > 0 && !activeEventId) {
         setActiveEventId(evts[0].event_id);
       }
@@ -134,8 +158,18 @@ export default function App() {
     setActiveEventId(eventId);
   };
 
-  const handleAssetClick = (asset) => {
+  const handleAssetClick = async (asset) => {
     setSelectedAsset(asset);
+    if (!asset?.ticker || priceDataByTicker[asset.ticker]) {
+      return;
+    }
+
+    try {
+      const prices = await fetchPrice(asset.ticker, '1d');
+      setPriceDataByTicker((prev) => ({ ...prev, [asset.ticker]: prices }));
+    } catch (error) {
+      console.error(`Failed to load price data for ${asset.ticker}:`, error);
+    }
   };
 
   const handleCloseModal = () => {
@@ -144,6 +178,74 @@ export default function App() {
 
   const handleOpenRightPanel = () => {
     setRightPanelExpanded(true);
+  };
+
+  const refreshSelectedEvent = useCallback(async () => {
+    if (!activeEventId) {
+      return;
+    }
+    try {
+      const latest = await fetchEvent(activeEventId);
+      setEvents((prev) => prev.map((evt) => (evt.event_id === activeEventId ? latest : evt)));
+    } catch (error) {
+      console.error(`Failed to refresh event ${activeEventId}:`, error);
+    }
+  }, [activeEventId]);
+
+  useEffect(() => {
+    refreshSelectedEvent();
+  }, [refreshSelectedEvent]);
+
+  const handleValidateActiveEvent = async () => {
+    if (!activeEventId) {
+      return false;
+    }
+    setActionBusy(true);
+    try {
+      await validateEvent(activeEventId, '1h');
+      await loadData();
+      return true;
+    } catch (error) {
+      console.error('Validation failed:', error);
+      return false;
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAnalyzeHeadline = async (headline) => {
+    setActionBusy(true);
+    try {
+      const created = await analyzeNews({
+        headline,
+        text: headline,
+        source: 'Frontend Control Panel',
+      });
+      if (created?.event_id) {
+        setEvents((prev) => [created, ...prev]);
+        setActiveEventId(created.event_id);
+      }
+      await loadData();
+      return true;
+    } catch (error) {
+      console.error('Analyze failed:', error);
+      return false;
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSimulateScenario = async (scenario) => {
+    setActionBusy(true);
+    try {
+      const result = await simulateScenario(scenario);
+      return Boolean(result);
+    } catch (error) {
+      console.error('Simulate failed:', error);
+      return false;
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   // Calculate events per minute (mock value for demo)
@@ -158,6 +260,9 @@ export default function App() {
         onRefresh={handleRefresh}
         eventsPerMin={eventsPerMin}
         onOpenRightPanel={handleOpenRightPanel}
+        backendHealthy={Boolean(backendHealth)}
+        llmHealthy={Boolean(llmHealth?.ollama_reachable && llmHealth?.model_found)}
+        serviceVersion={serviceInfo?.version || 'unknown'}
       />
 
       {/* Main Content */}
@@ -214,6 +319,17 @@ export default function App() {
                 demoMode={demoMode}
               />
             </div>
+
+            {/* Backend Control Panel */}
+            <BackendControlPanel
+              activeEvent={activeEvent}
+              backendHealth={backendHealth}
+              llmHealth={llmHealth}
+              onValidateActive={handleValidateActiveEvent}
+              onAnalyzeHeadline={handleAnalyzeHeadline}
+              onSimulateScenario={handleSimulateScenario}
+              busy={actionBusy}
+            />
           </div>
         )}
       </main>
@@ -242,6 +358,7 @@ export default function App() {
           <AssetModal
             asset={selectedAsset}
             onClose={handleCloseModal}
+            priceData={selectedAsset ? priceDataByTicker[selectedAsset.ticker] : null}
           />
         )}
       </AnimatePresence>

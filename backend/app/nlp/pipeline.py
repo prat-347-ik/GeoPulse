@@ -49,12 +49,14 @@ def enrich_article_with_nlp(
         enriched["entities"] = entities
         enriched["summary_explanation"] = summary
         enriched["explanation_source"] = "deterministic_fallback"
+        enriched["llm_latency_ms"] = 0.0
         return enriched
     except Exception as exc:
         logger.exception("NLP enrichment failed, returning deterministic result: %s", exc)
         enriched.setdefault("entities", {"organizations": [], "locations": [], "people": []})
         enriched.setdefault("summary_explanation", "")
         enriched.setdefault("explanation_source", "deterministic_fallback")
+        enriched.setdefault("llm_latency_ms", 0.0)
         return enriched
 
 
@@ -75,7 +77,7 @@ async def enrich_article_with_nlp_async(
             if part
         )
         entities = extract_entities(text)
-        summary, explanation_source = await generate_summary_explanation_async(
+        summary, explanation_source, llm_latency_ms = await generate_summary_explanation_async(
             article=article,
             deterministic_results=deterministic_results,
             use_local_llm=use_local_llm,
@@ -84,10 +86,12 @@ async def enrich_article_with_nlp_async(
         enriched["entities"] = entities
         enriched["summary_explanation"] = summary
         enriched["explanation_source"] = explanation_source
+        enriched["llm_latency_ms"] = round(float(llm_latency_ms), 2)
         return enriched
     except Exception as exc:
         logger.exception("Async NLP enrichment failed, returning deterministic result: %s", exc)
         enriched.setdefault("entities", {"organizations": [], "locations": [], "people": []})
         enriched.setdefault("summary_explanation", "")
         enriched.setdefault("explanation_source", "deterministic_fallback")
+        enriched.setdefault("llm_latency_ms", 0.0)
         return enriched

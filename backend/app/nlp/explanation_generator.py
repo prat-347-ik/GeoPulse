@@ -146,19 +146,20 @@ async def generate_summary_explanation_async(
     article: dict[str, Any],
     deterministic_results: dict[str, Any],
     use_local_llm: bool,
-) -> tuple[str, str]:
+) -> tuple[str, str, float]:
     """Generate a summary explanation with optional local LLM and strict guardrails."""
     prompt, top_sectors, top_assets, fallback_text = _build_constrained_prompt(article, deterministic_results)
 
     if not use_local_llm:
         logger.warning("Local LLM disabled, using deterministic fallback summary")
-        return fallback_text, "deterministic_fallback"
+        return fallback_text, "deterministic_fallback", 0.0
 
     try:
         llm_result = await generate_local_llm_explanation_with_meta(
             prompt=prompt,
             fallback_text=fallback_text,
         )
+        llm_latency_ms = float(llm_result.get("llm_latency_ms", 0.0) or 0.0)
         candidate = _sanitize_output(str(llm_result.get("text", "")))
         candidate = _enforce_two_sentences(candidate)
         source = str(llm_result.get("source", "deterministic_fallback"))
@@ -170,13 +171,13 @@ async def generate_summary_explanation_async(
         )
         if not is_valid:
             logger.warning("LLM output validation failed, using deterministic fallback")
-            return fallback_text, "deterministic_fallback"
+            return fallback_text, "deterministic_fallback", llm_latency_ms
 
         normalized_source = "llm" if source == "llm" else "deterministic_fallback"
-        return candidate, normalized_source
+        return candidate, normalized_source, llm_latency_ms
     except Exception as exc:
         logger.warning("LLM explanation generation failed, using deterministic fallback: %s", exc)
-        return fallback_text, "deterministic_fallback"
+        return fallback_text, "deterministic_fallback", 0.0
 
 
 async def generate_summary_explanation_with_meta_async(
@@ -185,7 +186,7 @@ async def generate_summary_explanation_with_meta_async(
     use_local_llm: bool,
 ) -> dict[str, float | str]:
     """Generate explanation with source and latency metadata."""
-    text, source = await generate_summary_explanation_async(
+    text, source, llm_latency_ms = await generate_summary_explanation_async(
         article=article,
         deterministic_results=deterministic_results,
         use_local_llm=use_local_llm,
@@ -193,5 +194,5 @@ async def generate_summary_explanation_with_meta_async(
     return {
         "text": text,
         "source": source,
-        "llm_latency_ms": 0.0,
+        "llm_latency_ms": round(float(llm_latency_ms), 2),
     }

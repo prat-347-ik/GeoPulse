@@ -1,7 +1,16 @@
 import { Activity, RefreshCw, User, Zap, Menu } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export default function TopBar({ demoMode, setDemoMode, onRefresh, eventsPerMin = 12, onOpenRightPanel }) {
+export default function TopBar({
+  demoMode,
+  setDemoMode,
+  onRefresh,
+  eventsPerMin = 12,
+  onOpenRightPanel,
+  backendHealthy = false,
+  llmHealthy = false,
+  serviceVersion = 'unknown',
+}) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-bg-primary border-b border-gray-800 px-6 py-3">
       <div className="flex items-center justify-between max-w-[1920px] mx-auto">
@@ -26,6 +35,17 @@ export default function TopBar({ demoMode, setDemoMode, onRefresh, eventsPerMin 
           <div className="flex items-center gap-2 text-text-secondary text-sm">
             <Activity className="w-4 h-4" />
             <span>{eventsPerMin} events/min</span>
+          </div>
+          <div className="hidden md:flex items-center gap-2 text-xs">
+            <span className={`px-2 py-1 rounded ${backendHealthy ? 'bg-accent-green/20 text-accent-green' : 'bg-accent-red/20 text-accent-red'}`}>
+              API {backendHealthy ? 'OK' : 'DOWN'}
+            </span>
+            <span className={`px-2 py-1 rounded ${llmHealthy ? 'bg-accent-blue/20 text-accent-blue' : 'bg-accent-amber/20 text-accent-amber'}`}>
+              LLM {llmHealthy ? 'READY' : 'FALLBACK'}
+            </span>
+            <span className="px-2 py-1 rounded bg-gray-800 text-text-secondary">
+              v{serviceVersion}
+            </span>
           </div>
         </div>
 

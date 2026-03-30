@@ -2,6 +2,42 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
+async function apiGet(path) {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Root service info endpoint.
+ */
+export async function getServiceInfo() {
+  try {
+    const response = await fetch(API_BASE_URL.replace(/\/api$/, '/'));
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  } catch (error) {
+    console.error('Failed to fetch service info:', error);
+    return null;
+  }
+}
+
+async function apiPost(path, payload) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * Fetch events from the live FastAPI backend
  * @param {number} limit - Maximum number of events to fetch (default: 10, max: 50)
@@ -9,9 +45,7 @@ const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
  */
 export async function getEvents(limit = 10) {
   try {
-    const response = await fetch(`${API_BASE_URL}/events?limit=${Math.min(limit, 50)}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await apiGet(`/events?limit=${Math.min(limit, 50)}`);
     return Array.isArray(data) ? data : data.data || [];
   } catch (error) {
     console.error('Failed to fetch events:', error);
@@ -31,9 +65,7 @@ export function fetchEvents(limit = 10) {
  */
 export async function fetchEvent(eventId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/events/${eventId}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await apiGet(`/events/${eventId}`);
     return data.data || data;
   } catch (error) {
     console.error(`Failed to fetch event ${eventId}:`, error);
@@ -48,9 +80,7 @@ export async function fetchEvent(eventId) {
  */
 export async function getValidations(limit = 20) {
   try {
-    const response = await fetch(`${API_BASE_URL}/validations?limit=${Math.min(limit, 100)}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await apiGet(`/validations?limit=${Math.min(limit, 100)}`);
     return Array.isArray(data) ? data : data.data || [];
   } catch (error) {
     console.error('Failed to fetch validations:', error);
@@ -71,12 +101,28 @@ export function fetchValidations(limit = 20) {
  */
 export async function validateEvent(eventId, horizon = '24h') {
   try {
-    const response = await fetch(`${API_BASE_URL}/validate/${eventId}?horizon=${horizon}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await apiGet(`/validate/${eventId}?horizon=${horizon}`);
     return data.data || data;
   } catch (error) {
     console.error(`Failed to validate event ${eventId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Analyze a headline and persist event.
+ */
+export async function analyzeNews({ headline, text = '', source = 'Frontend' }) {
+  try {
+    const data = await apiPost('/analyze', {
+      headline,
+      text,
+      source,
+      timestamp: new Date().toISOString(),
+    });
+    return data.data || null;
+  } catch (error) {
+    console.error('Failed to analyze news:', error);
     throw error;
   }
 }
@@ -86,13 +132,7 @@ export async function validateEvent(eventId, horizon = '24h') {
  */
 export async function simulateScenario(scenarioText) {
   try {
-    const response = await fetch(`${API_BASE_URL}/simulate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenario: scenarioText }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    const data = await apiPost('/simulate', { scenario: scenarioText });
     return data.data || null;
   } catch (error) {
     console.error('Failed to simulate scenario:', error);
@@ -103,17 +143,51 @@ export async function simulateScenario(scenarioText) {
 /**
  * Fetch price data for a specific ticker
  * @param {string} ticker - Stock ticker
- * @param {string} range - Time range ('1d', '5d', '1mo', etc.)
+ * @param {string} priceRange - Time range ('1h', '1d', '1w', '1m')
  * @returns {Promise<Object>} Price data with historical points
  */
-export async function fetchPrice(ticker, range = '1d') {
+export async function fetchPrice(ticker, priceRange = '1d') {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await apiGet(
+        `/price?ticker=${encodeURIComponent(ticker)}&price_range=${encodeURIComponent(priceRange)}`,
+      );
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+  }
+
+  console.error(`Failed to fetch price for ${ticker} after retry:`, lastError);
+  throw lastError;
+}
+
+/**
+ * Backend API health.
+ */
+export async function getHealth() {
   try {
-    const response = await fetch(`${API_BASE_URL}/price?ticker=${ticker}&range=${range}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
+    return await apiGet('/health');
   } catch (error) {
-    console.error(`Failed to fetch price for ${ticker}:`, error);
-    throw error;
+    console.error('Failed to fetch backend health:', error);
+    return null;
+  }
+}
+
+/**
+ * Local LLM runtime health.
+ */
+export async function getLlmHealth() {
+  try {
+    const data = await apiGet('/llm/health');
+    return data.data || null;
+  } catch (error) {
+    console.error('Failed to fetch LLM health:', error);
+    return null;
   }
 }
 

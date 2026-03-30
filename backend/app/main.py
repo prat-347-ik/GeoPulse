@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import asyncio
 from app.db.mongodb import mongodb_connection
 from app.db.repository import EventRepository
@@ -23,6 +24,7 @@ from app.db.schemas import (
 from app.services.orchestrator import analysis_orchestrator
 from app.nlp.pipeline import enrich_article_with_nlp
 from app.nlp.llm_client import warmup_local_llm
+from app.nlp.llm_client import get_llm_runtime_health
 from app.validation.market_validator import validate_event_assets
 from app.core.config import (
     ENABLE_BACKGROUND_VALIDATOR,
@@ -31,6 +33,20 @@ from app.core.config import (
     BACKGROUND_VALIDATOR_BATCH_SIZE,
 )
 from workers.scheduler import BackgroundValidatorScheduler
+
+
+def _validated_at_sort_key(value):
+    """Normalize various validated_at shapes to a timezone-aware datetime for safe sorting."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            normalized = value.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(normalized)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.min.replace(tzinfo=timezone.utc)
 
 app = FastAPI(
     title="GeoPulse AI API",
@@ -155,7 +171,14 @@ async def get_validations(limit: int = Query(20, ge=1, le=100)):
     materialized_validations = []
 
     for event in events:
-        for asset in event.get("affected_assets", []):
+        affected_assets = event.get("affected_assets", [])
+        if not isinstance(affected_assets, list):
+            continue
+
+        for asset in affected_assets:
+            if not isinstance(asset, dict):
+                continue
+
             validation_status = asset.get("validation_status")
             if not validation_status:
                 continue
@@ -179,7 +202,7 @@ async def get_validations(limit: int = Query(20, ge=1, le=100)):
 
     sorted_validations = sorted(
         materialized_validations,
-        key=lambda x: x.get("validated_at") or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda x: _validated_at_sort_key(x.get("validated_at")),
         reverse=True,
     )[:limit]
     return {"status": "success", "data": sorted_validations}
@@ -229,44 +252,55 @@ async def validate_event(
 @app.get("/api/price")
 async def get_price(
     ticker: str = Query(..., min_length=1, max_length=10),
-    range: str = Query("1d", pattern="^(1h|1d|1w|1m)$"),
+    price_range: str = Query("1d", pattern="^(1h|1d|1w|1m)$"),
 ):
     """Get price data for a ticker (mock data for demo)."""
-    # Generate mock price data
-    now = datetime.now(timezone.utc)
-    
-    range_hours = {
-        "1h": 1,
-        "1d": 24,
-        "1w": 168,
-        "1m": 720,
-    }
-    hours = range_hours.get(range, 24)
-    
-    base_price = 100.0
-    # Add some variety based on ticker
-    ticker_seed = sum(ord(c) for c in ticker)
-    random.seed(ticker_seed)
-    base_price = 50 + random.random() * 200
-    
-    prices = []
-    for i in range(hours):
-        time = now - timedelta(hours=hours - i)
-        # Generate somewhat realistic price movement
-        noise = random.gauss(0, 0.5)
-        trend = 0.01 * (i / hours)  # Slight upward trend
-        price = base_price * (1 + trend + noise / 100)
-        prices.append({
-            "time": time.isoformat() + "Z",
-            "price": round(price, 2),
-        })
-    
-    random.seed()  # Reset seed
-    
-    return {
-        "ticker": ticker,
-        "prices": prices,
-    }
+    try:
+        # Generate mock price data
+        now = datetime.now(timezone.utc)
+
+        range_hours = {
+            "1h": 1,
+            "1d": 24,
+            "1w": 168,
+            "1m": 720,
+        }
+        hours = range_hours.get(price_range, 24)
+
+        # Add some variety based on ticker
+        ticker_seed = sum(ord(c) for c in ticker)
+        random.seed(ticker_seed)
+        base_price = 50 + random.random() * 200
+
+        prices = []
+        for i in range(hours):
+            sample_time = now - timedelta(hours=hours - i)
+            # Generate somewhat realistic price movement
+            noise = random.gauss(0, 0.5)
+            trend = 0.01 * (i / hours)  # Slight upward trend
+            price = base_price * (1 + trend + noise / 100)
+            prices.append({
+                "time": sample_time.isoformat() + "Z",
+                "price": round(price, 2),
+            })
+
+        random.seed()  # Reset seed
+
+        return {
+            "ticker": ticker,
+            "prices": prices,
+        }
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "Unable to fetch price data",
+                "ticker": ticker,
+                "price_range": price_range,
+                "error": str(exc),
+            },
+        )
 
 
 @app.post("/api/analyze")
@@ -400,6 +434,16 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "events_count": analysis_orchestrator.event_count(),
         "validations_count": validations_count,
+    }
+
+
+@app.get("/api/llm/health")
+async def llm_health_check():
+    """Report local LLM runtime status and configured model availability."""
+    return {
+        "status": "success",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "data": get_llm_runtime_health(),
     }
 
 

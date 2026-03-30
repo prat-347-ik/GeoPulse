@@ -148,6 +148,13 @@ export function AssetModal({ asset, onClose, priceData }) {
   const reason = asset.reason || 'No analysis available';
   const validationStatus = asset.validation_status || 'PENDING';
   const actualMove = typeof asset.actual_move_pct === 'number' ? asset.actual_move_pct : null;
+  const hasPriceSeries = Array.isArray(priceData?.prices) && priceData.prices.length > 0;
+  const sparklineSeries = hasPriceSeries
+    ? priceData.prices.map((point) => Number(point?.price)).filter((value) => Number.isFinite(value))
+    : [];
+  const minPrice = sparklineSeries.length ? Math.min(...sparklineSeries) : 0;
+  const maxPrice = sparklineSeries.length ? Math.max(...sparklineSeries) : 0;
+  const priceSpan = Math.max(1, maxPrice - minPrice);
 
   return (
     <motion.div
@@ -225,18 +232,21 @@ export function AssetModal({ asset, onClose, priceData }) {
 
         {/* Sparkline placeholder */}
         <div className="mt-4 p-4 bg-bg-primary rounded-lg">
-          <p className="text-xs text-text-secondary mb-2">Price (Last 24h)</p>
+          <p className="text-xs text-text-secondary mb-2">
+            Price (Last 24h){hasPriceSeries ? '' : ' - unavailable'}
+          </p>
           <div className="h-16 flex items-end gap-0.5">
-            {/* Mock sparkline */}
-            {Array.from({ length: 24 }, (_, i) => {
-              const height = 20 + Math.sin(i * 0.5) * 15 + Math.random() * 20;
+            {(hasPriceSeries ? sparklineSeries : Array.from({ length: 24 }, (_, i) => 40 + i)).map((value, i) => {
+              const normalizedHeight = hasPriceSeries
+                ? 20 + ((value - minPrice) / priceSpan) * 80
+                : 30 + Math.sin(i * 0.4) * 20;
               return (
                 <div
                   key={i}
                   className={`flex-1 rounded-sm ${
                     prediction === 'BULLISH' ? 'bg-accent-green/60' : 'bg-accent-red/60'
                   }`}
-                  style={{ height: `${height}%` }}
+                  style={{ height: `${normalizedHeight}%` }}
                 />
               );
             })}
