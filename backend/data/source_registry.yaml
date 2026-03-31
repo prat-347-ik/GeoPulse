@@ -1,0 +1,52 @@
+macro:
+  - name: Reuters Markets
+    reliability: 0.95
+    url: https://feeds.reuters.com/reuters/businessNews
+    event_class_hints:
+      - MACRO
+      - EARNINGS
+      - REGULATION
+    domain_weighting:
+      Financials: 1.1
+      Broad Market: 1.05
+
+  - name: NYT Economy
+    reliability: 0.92
+    url: https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml
+    event_class_hints:
+      - MACRO
+      - REGULATION
+    domain_weighting:
+      Broad Market: 1.05
+      Financials: 1.08
+
+energy:
+  - name: EIA
+    reliability: 1.0
+    url: https://www.eia.gov/rss/press_rss.xml
+    event_class_hints:
+      - ENERGY
+      - SUPPLY_CHAIN
+    domain_weighting:
+      Energy: 1.25
+      Transportation: 1.1
+
+regional:
+  - name: Times Of India Top Stories
+    reliability: 0.75
+    url: http://timesofindia.indiatimes.com/rssfeedstopstories.cms
+    event_class_hints:
+      - GEOPOLITICAL
+      - MACRO
+    domain_weighting:
+      Broad Market: 1.0
+
+  - name: Times Of India Business
+    reliability: 0.78
+    url: http://timesofindia.indiatimes.com/rssfeeds/1898055.cms
+    event_class_hints:
+      - MACRO
+      - EARNINGS
+    domain_weighting:
+      Industrials: 1.05
+      Consumer: 1.05

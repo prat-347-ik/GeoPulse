@@ -61,11 +61,19 @@ class ConfidenceComponents(BaseModel):
     historical_similarity: float = Field(ge=0, le=1)
 
 
+class SourceProfile(BaseModel):
+    category: str = "general"
+    trust: float = Field(default=0.5, ge=0, le=1)
+    event_class_hints: List[str] = Field(default_factory=list)
+    domain_weighting: Dict[str, float] = Field(default_factory=dict)
+
+
 class EventMeta(BaseModel):
     llm_model: str = "demo-gpt"
     llm_prompt_version: str = "v1"
     confidence_components: ConfidenceComponents
     confidence_formula: str = "0.4*llm_score+0.3*sentiment_strength+0.3*historical_similarity"
+    source_profile: Optional[SourceProfile] = None
 
 
 class AffectedAsset(BaseModel):

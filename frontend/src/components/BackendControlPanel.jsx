@@ -8,6 +8,10 @@ export default function BackendControlPanel({
   onValidateActive,
   onAnalyzeHeadline,
   onSimulateScenario,
+  healthPollMs,
+  llmPollMs,
+  onSetHealthPollMs,
+  onSetLlmPollMs,
   busy = false,
 }) {
   const [headline, setHeadline] = useState('Fed signals pause in rate hikes amid cooling inflation');
@@ -65,6 +69,36 @@ export default function BackendControlPanel({
           <p className="text-xs text-text-secondary mb-1">Configured Model</p>
           <p className="text-sm font-semibold text-white truncate">{llmHealth?.model || 'Unknown'}</p>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="p-3 bg-bg-card rounded-lg border border-gray-800">
+          <p className="text-xs text-text-secondary mb-2">API Health Poll Interval</p>
+          <select
+            value={healthPollMs}
+            onChange={(e) => onSetHealthPollMs(Number(e.target.value))}
+            className="w-full px-2 py-1.5 bg-bg-primary border border-gray-700 rounded text-sm text-white"
+          >
+            <option value={5000}>5 seconds</option>
+            <option value={15000}>15 seconds</option>
+            <option value={30000}>30 seconds</option>
+            <option value={60000}>60 seconds</option>
+          </select>
+        </label>
+
+        <label className="p-3 bg-bg-card rounded-lg border border-gray-800">
+          <p className="text-xs text-text-secondary mb-2">LLM Health Poll Interval</p>
+          <select
+            value={llmPollMs}
+            onChange={(e) => onSetLlmPollMs(Number(e.target.value))}
+            className="w-full px-2 py-1.5 bg-bg-primary border border-gray-700 rounded text-sm text-white"
+          >
+            <option value={10000}>10 seconds</option>
+            <option value={30000}>30 seconds</option>
+            <option value={60000}>60 seconds</option>
+            <option value={120000}>120 seconds</option>
+          </select>
+        </label>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

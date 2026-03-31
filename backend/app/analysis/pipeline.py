@@ -12,10 +12,29 @@ from app.analysis.sector_mapper import map_macro_to_sectors
 class AnalysisPipeline:
     def analyze(self, article: dict[str, Any]) -> dict[str, Any]:
         classification = classify_event(article)
+        source_meta = article.get("source_meta", {}) if isinstance(article.get("source_meta", {}), dict) else {}
+
+        source_trust = float(source_meta.get("reliability", 0.5))
+        source_trust = max(0.0, min(1.0, source_trust))
+
         sector_impacts = map_macro_to_sectors(
             classification.macro_signal,
             str(article.get("market_pressure", "")),
         )
+
+        domain_weighting = source_meta.get("domain_weighting", {}) if isinstance(source_meta.get("domain_weighting", {}), dict) else {}
+        normalized_domain_weighting = {
+            str(key).strip().lower(): max(0.5, min(1.5, float(value)))
+            for key, value in domain_weighting.items()
+            if str(key).strip()
+        }
+        if normalized_domain_weighting:
+            weighted_impacts: dict[str, float] = {}
+            for sector, weight in sector_impacts.items():
+                multiplier = normalized_domain_weighting.get(sector.lower(), 1.0)
+                weighted_impacts[sector] = round(max(-1.0, min(1.0, weight * multiplier)), 3)
+            sector_impacts = weighted_impacts
+
         ordered_sector_impacts = dict(
             sorted(
                 sector_impacts.items(),
@@ -24,8 +43,12 @@ class AnalysisPipeline:
             )
         )
 
-        context_confidence = float(
+        base_context_confidence = float(
             article.get("context_meta", {}).get("context_confidence", 0.5)
+        )
+        context_confidence = round(
+            max(0.0, min(1.0, (0.8 * base_context_confidence) + (0.2 * source_trust))),
+            3,
         )
         primary_weight = next(iter(ordered_sector_impacts.values()), 0.2)
         event_confidence = compute_confidence(
@@ -73,6 +96,12 @@ class AnalysisPipeline:
                 signal_strength=classification.signal_strength,
                 sector_weight=primary_weight,
             ),
+            source_profile={
+                "category": str(source_meta.get("category", "general")),
+                "trust": source_trust,
+                "event_class_hints": source_meta.get("event_class_hints", []),
+                "domain_weighting": domain_weighting,
+            },
         )
 
 

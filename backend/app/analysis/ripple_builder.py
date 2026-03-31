@@ -32,6 +32,7 @@ def build_ripple_event(
     assets: list[dict[str, Any]],
     event_confidence: float,
     confidence_components: dict[str, float],
+    source_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     primary_sector = next(iter(sector_impacts), "Broad Market")
     primary_asset = assets[0] if assets else {
@@ -105,5 +106,11 @@ def build_ripple_event(
             "llm_prompt_version": "analysis-v1",
             "confidence_components": confidence_components,
             "confidence_formula": "0.4*context_confidence+0.3*signal_strength+0.2*abs(sector_weight)+0.1*severity_weight",
+            "source_profile": source_profile or {
+                "category": "general",
+                "trust": 0.5,
+                "event_class_hints": [],
+                "domain_weighting": {},
+            },
         },
     }

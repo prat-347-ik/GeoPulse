@@ -22,6 +22,39 @@ import {
   getServiceInfo,
 } from './lib/api';
 
+function ToastStack({ toasts, onDismiss }) {
+  return (
+    <div className="fixed bottom-4 right-4 z-[120] w-[min(92vw,360px)] space-y-2 pointer-events-none">
+      <AnimatePresence>
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg backdrop-blur-sm ${
+              toast.type === 'success'
+                ? 'bg-accent-green/20 border-accent-green/40 text-accent-green'
+                : toast.type === 'error'
+                  ? 'bg-accent-red/20 border-accent-red/40 text-accent-red'
+                  : 'bg-accent-blue/20 border-accent-blue/40 text-accent-blue'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-white">{toast.title}</p>
+              <button
+                onClick={() => onDismiss(toast.id)}
+                className="text-xs text-text-secondary hover:text-white"
+                aria-label="Dismiss notification"
+              >
+                Dismiss
+              </button>
+            </div>
+            <p className="text-xs mt-1 text-text-secondary">{toast.message}</p>
+          </div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function App() {
   const [demoMode, setDemoMode] = useState(true);
   const [events, setEvents] = useState([]);
@@ -37,6 +70,35 @@ export default function App() {
   const [llmHealth, setLlmHealth] = useState(null);
   const [serviceInfo, setServiceInfo] = useState(null);
   const [priceDataByTicker, setPriceDataByTicker] = useState({});
+  const [healthPollMs, setHealthPollMs] = useState(15000);
+  const [llmPollMs, setLlmPollMs] = useState(30000);
+  const [toasts, setToasts] = useState([]);
+  const [backendActions, setBackendActions] = useState([]);
+
+  const pushToast = useCallback((type, title, message) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const recordBackendAction = useCallback((actionType, ok, details) => {
+    setBackendActions((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        actionType,
+        status: ok ? 'success' : 'error',
+        details,
+        at: new Date().toISOString(),
+      },
+      ...prev,
+    ].slice(0, 25));
+  }, []);
 
   // Get active event object
   const activeEvent = events.find((e) => e.event_id === activeEventId) || null;
@@ -87,6 +149,28 @@ export default function App() {
   useEffect(() => {
     loadData();
   }, [activeEventId]);
+
+  const refreshBackendHealth = useCallback(async () => {
+    const health = await getHealth();
+    setBackendHealth(health);
+  }, []);
+
+  const refreshLlmHealth = useCallback(async () => {
+    const llm = await getLlmHealth();
+    setLlmHealth(llm);
+  }, []);
+
+  useEffect(() => {
+    refreshBackendHealth();
+    const timer = setInterval(refreshBackendHealth, healthPollMs);
+    return () => clearInterval(timer);
+  }, [refreshBackendHealth, healthPollMs]);
+
+  useEffect(() => {
+    refreshLlmHealth();
+    const timer = setInterval(refreshLlmHealth, llmPollMs);
+    return () => clearInterval(timer);
+  }, [refreshLlmHealth, llmPollMs]);
 
   // WebSocket connection for real-time events
   useEffect(() => {
@@ -204,9 +288,13 @@ export default function App() {
     try {
       await validateEvent(activeEventId, '1h');
       await loadData();
+      pushToast('success', 'Validation Complete', 'Validation finished and data was refreshed.');
+      recordBackendAction('validate', true, `Validated ${activeEventId}`);
       return true;
     } catch (error) {
       console.error('Validation failed:', error);
+      pushToast('error', 'Validation Failed', 'Could not validate the selected event.');
+      recordBackendAction('validate', false, error?.message || 'Unknown validation error');
       return false;
     } finally {
       setActionBusy(false);
@@ -226,9 +314,13 @@ export default function App() {
         setActiveEventId(created.event_id);
       }
       await loadData();
+      pushToast('success', 'Analyze Complete', 'A new event was generated from the headline.');
+      recordBackendAction('analyze', true, headline);
       return true;
     } catch (error) {
       console.error('Analyze failed:', error);
+      pushToast('error', 'Analyze Failed', 'The analyze request did not complete successfully.');
+      recordBackendAction('analyze', false, error?.message || 'Unknown analyze error');
       return false;
     } finally {
       setActionBusy(false);
@@ -239,9 +331,18 @@ export default function App() {
     setActionBusy(true);
     try {
       const result = await simulateScenario(scenario);
+      if (result) {
+        pushToast('success', 'Simulation Complete', 'Scenario simulation completed successfully.');
+        recordBackendAction('simulate', true, scenario);
+      } else {
+        pushToast('error', 'Simulation Failed', 'Scenario simulation did not return data.');
+        recordBackendAction('simulate', false, 'Empty simulate response');
+      }
       return Boolean(result);
     } catch (error) {
       console.error('Simulate failed:', error);
+      pushToast('error', 'Simulation Failed', 'The simulate request failed.');
+      recordBackendAction('simulate', false, error?.message || 'Unknown simulate error');
       return false;
     } finally {
       setActionBusy(false);
@@ -328,6 +429,10 @@ export default function App() {
               onValidateActive={handleValidateActiveEvent}
               onAnalyzeHeadline={handleAnalyzeHeadline}
               onSimulateScenario={handleSimulateScenario}
+              healthPollMs={healthPollMs}
+              llmPollMs={llmPollMs}
+              onSetHealthPollMs={setHealthPollMs}
+              onSetLlmPollMs={setLlmPollMs}
               busy={actionBusy}
             />
           </div>
@@ -339,6 +444,9 @@ export default function App() {
         <RightPanel
           isExpanded={rightPanelExpanded}
           setIsExpanded={setRightPanelExpanded}
+          events={events}
+          validations={validations}
+          backendActions={backendActions}
         />
       )}
 
@@ -349,6 +457,9 @@ export default function App() {
           setIsExpanded={setRightPanelExpanded}
           activeTab={mobileActiveTab}
           setActiveTab={setMobileActiveTab}
+          events={events}
+          validations={validations}
+          backendActions={backendActions}
         />
       )}
 
@@ -362,6 +473,8 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

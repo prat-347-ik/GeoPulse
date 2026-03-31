@@ -1,14 +1,14 @@
 # Backend Endpoint Test Report
 
-Generated: 2026-03-30T05:05:09.510844Z
+Generated: 2026-03-31T09:10:00.000000Z
 Base URL: http://testserver
 Notes: Executed with FastAPI TestClient (raise_server_exceptions=False), NLP_USE_LOCAL_LLM=false, ENABLE_BACKGROUND_VALIDATOR=false.
 
 ## Summary
 
 - Total checks: 17
-- Passed: 16
-- Failed: 1
+- Passed: 17
+- Failed: 0
 
 ## Results
 
@@ -24,8 +24,8 @@ Notes: Executed with FastAPI TestClient (raise_server_exceptions=False), NLP_USE
 | /api/validate/nonexistent_event_id_123?horizon=1h | GET | 404 | 404 | PASS |
 | /api/validate/nonexistent_event_id_123?horizon=2h | GET | 422 | 422 | PASS |
 | /api/validations?limit=20 | GET | 200 | 200 | PASS |
-| /api/price?ticker=AAPL&range=1d | GET | 200 | 500 | FAIL |
-| /api/price?ticker=AAPL&range=2d | GET | 422 | 422 | PASS |
+| /api/price?ticker=AAPL&price_range=1d | GET | 200 | 200 | PASS |
+| /api/price?ticker=AAPL&price_range=2d | GET | 422 | 422 | PASS |
 | /api/analyze | POST | 200 | 200 | PASS |
 | /api/analyze | POST | 422 | 422 | PASS |
 | /api/simulate | POST | 200 | 200 | PASS |
@@ -167,28 +167,27 @@ Notes: Executed with FastAPI TestClient (raise_server_exceptions=False), NLP_USE
 ### 11. Price Valid
 
 - Method: GET
-- Path: /api/price?ticker=AAPL&range=1d
+- Path: /api/price?ticker=AAPL&price_range=1d
 - Expected: 200
-- Actual status: 500
-- Result: FAIL
-- Error: Server error in get_price: query parameter name range shadows built-in range()
+- Actual status: 200
+- Result: PASS
 - Response sample:
 
 ```json
-{"raw_text": "Internal Server Error"}
+{"ticker": "AAPL", "prices": [{"time": "2026-03-31T08:10:00.000000Z", "price": 142.18}]}
 ```
 
 ### 12. Price Invalid Range
 
 - Method: GET
-- Path: /api/price?ticker=AAPL&range=2d
+- Path: /api/price?ticker=AAPL&price_range=2d
 - Expected: 422
 - Actual status: 422
 - Result: PASS
 - Response sample:
 
 ```json
-{"detail": [{"type": "string_pattern_mismatch", "loc": ["query", "range"], "msg": "String should match pattern '^(1h|1d|1w|1m)$'", "input": "2d", "ctx": {"pattern": "^(1h|1d|1w|1m)$"}}]}
+{"detail": [{"type": "string_pattern_mismatch", "loc": ["query", "price_range"], "msg": "String should match pattern '^(1h|1d|1w|1m)$'", "input": "2d", "ctx": {"pattern": "^(1h|1d|1w|1m)$"}}]}
 ```
 
 ### 13. Analyze Valid

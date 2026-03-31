@@ -26,6 +26,10 @@ _CLASSIFICATION_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("TECH", ("ai", "chip", "chips", "semiconductor", "data", "cloud", "software"), "Technology demand acceleration"),
 )
 
+_DEFAULT_SIGNAL_BY_EVENT_TYPE: dict[str, str] = {
+    event_type: signal for event_type, _, signal in _CLASSIFICATION_RULES
+}
+
 
 def _tokenise(text: str) -> list[str]:
     return _TOKEN_RE.findall((text or "").lower())
@@ -39,16 +43,28 @@ def classify_event(article: dict[str, Any]) -> EventClassification:
     tokens = _tokenise(text)
     token_set = set(tokens)
 
+    source_hints = {
+        str(hint).strip().upper()
+        for hint in article.get("source_meta", {}).get("event_class_hints", [])
+        if str(hint).strip()
+    }
+
     best_event_type = "MACRO"
     best_macro_signal = str(article.get("macro_effect") or "Macro policy repricing")
     best_matches: tuple[str, ...] = ()
+    best_score = 0.0
+    best_hint_match = False
 
     for event_type, keywords, default_signal in _CLASSIFICATION_RULES:
         matches = tuple(keyword for keyword in keywords if keyword in token_set)
-        if len(matches) > len(best_matches):
+        hint_match = event_type in source_hints
+        score = float(len(matches)) + (1.0 if hint_match else 0.0)
+        if score > best_score:
             best_event_type = event_type
             best_macro_signal = default_signal
             best_matches = matches
+            best_score = score
+            best_hint_match = hint_match
 
     headline = str(article.get("headline", "")).lower()
     market_pressure = str(article.get("market_pressure", "") or "").upper()
@@ -89,7 +105,13 @@ def classify_event(article: dict[str, Any]) -> EventClassification:
     elif not best_matches and market_pressure == "RISK_OFF":
         best_macro_signal = "Risk aversion spike"
 
-    raw_strength = min(1.0, len(best_matches) / 4.0) if best_matches else 0.25
+    if not best_matches and source_hints:
+        hinted_type = next(iter(source_hints))
+        if hinted_type in _DEFAULT_SIGNAL_BY_EVENT_TYPE:
+            best_event_type = hinted_type
+            best_macro_signal = _DEFAULT_SIGNAL_BY_EVENT_TYPE[hinted_type]
+
+    raw_strength = min(1.0, (len(best_matches) + (0.75 if best_hint_match else 0.0)) / 4.0) if (best_matches or best_hint_match) else 0.25
     signal_strength = round(max(0.25, raw_strength), 3)
 
     return EventClassification(

@@ -685,7 +685,31 @@ function FullscreenPredictions({ onClose }) {
   );
 }
 
-function DashboardTab() {
+function DashboardTab({ events = [], validations = [], backendActions = [] }) {
+  const now = Date.now();
+  const recentWindowMs = 24 * 60 * 60 * 1000;
+  const eventsLast24h = events.filter((evt) => {
+    const t = Date.parse(evt.timestamp || evt.ingested_at || '');
+    return Number.isFinite(t) && now - t <= recentWindowMs;
+  }).length;
+
+  const resolvedValidations = validations.filter(
+    (v) => v.status === 'CORRECT' || v.status === 'INCORRECT',
+  );
+  const correctCount = resolvedValidations.filter((v) => v.status === 'CORRECT').length;
+  const accuracy = resolvedValidations.length
+    ? Math.round((correctCount / resolvedValidations.length) * 100)
+    : 0;
+
+  const activePredictions = events.reduce((sum, evt) => {
+    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
+    return sum + assets.filter((a) => !a.validation_status).length;
+  }, 0);
+
+  const highSeverityAlerts = events.filter((evt) => evt.severity === 'HIGH' || evt.severity === 'CRITICAL').length;
+
+  const recentActivity = backendActions.slice(0, 3);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -700,31 +724,31 @@ function DashboardTab() {
             <Calendar className="w-3 h-3 text-accent-blue" />
             <span className="text-xs text-text-secondary">Today</span>
           </div>
-          <p className="text-lg font-bold text-white">24</p>
-          <p className="text-xs text-text-secondary">Events</p>
+          <p className="text-lg font-bold text-white">{eventsLast24h}</p>
+          <p className="text-xs text-text-secondary">Events (24h)</p>
         </div>
         <div className="p-3 bg-bg-primary rounded-lg">
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="w-3 h-3 text-accent-green" />
             <span className="text-xs text-text-secondary">Accuracy</span>
           </div>
-          <p className="text-lg font-bold text-accent-green">78%</p>
-          <p className="text-xs text-text-secondary">Last 24h</p>
+          <p className="text-lg font-bold text-accent-green">{accuracy}%</p>
+          <p className="text-xs text-text-secondary">From validations</p>
         </div>
         <div className="p-3 bg-bg-primary rounded-lg">
           <div className="flex items-center gap-2 mb-1">
             <Target className="w-3 h-3 text-accent-amber" />
             <span className="text-xs text-text-secondary">Active</span>
           </div>
-          <p className="text-lg font-bold text-white">12</p>
-          <p className="text-xs text-text-secondary">Predictions</p>
+          <p className="text-lg font-bold text-white">{activePredictions}</p>
+          <p className="text-xs text-text-secondary">Pending assets</p>
         </div>
         <div className="p-3 bg-bg-primary rounded-lg">
           <div className="flex items-center gap-2 mb-1">
             <PieChart className="w-3 h-3 text-accent-red" />
             <span className="text-xs text-text-secondary">Alerts</span>
           </div>
-          <p className="text-lg font-bold text-accent-red">3</p>
+          <p className="text-lg font-bold text-accent-red">{highSeverityAlerts}</p>
           <p className="text-xs text-text-secondary">High Sev</p>
         </div>
       </div>
@@ -733,27 +757,26 @@ function DashboardTab() {
       <div className="space-y-2">
         <h4 className="text-xs text-text-secondary uppercase tracking-wider">Recent Activity</h4>
         <div className="space-y-2">
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-white">XOM Prediction</span>
-              <span className="text-xs text-accent-green">+2.4%</span>
+          {recentActivity.length === 0 && (
+            <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">
+              Run analyze, simulate, or validate to populate backend activity.
             </div>
-            <p className="text-xs text-text-secondary">Validated • 15 min ago</p>
-          </div>
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-white">Fed Rate Decision</span>
-              <span className="text-xs text-accent-amber">HIGH</span>
+          )}
+          {recentActivity.map((action) => (
+            <div key={action.id} className="p-3 bg-bg-primary rounded-lg">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white capitalize">{action.actionType}</span>
+                <span
+                  className={`text-xs ${
+                    action.status === 'success' ? 'text-accent-green' : 'text-accent-red'
+                  }`}
+                >
+                  {action.status.toUpperCase()}
+                </span>
+              </div>
+              <p className="text-xs text-text-secondary line-clamp-1">{action.details}</p>
             </div>
-            <p className="text-xs text-text-secondary">New event • 32 min ago</p>
-          </div>
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-white">MSFT Alert</span>
-              <span className="text-xs text-accent-red">-1.2%</span>
-            </div>
-            <p className="text-xs text-text-secondary">Price movement • 1h ago</p>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -808,7 +831,29 @@ function DiscoverTab() {
   );
 }
 
-function TrendingTab() {
+function TrendingTab({ events = [] }) {
+  const topicMap = new Map();
+  events.forEach((evt) => {
+    const key = evt.event_type || evt.market_pressure || 'Unknown';
+    const current = topicMap.get(key) || { label: key, events: 0, score: 0 };
+    current.events += 1;
+    current.score += Number(evt.confidence || 0);
+    topicMap.set(key, current);
+  });
+
+  const topics = Array.from(topicMap.values())
+    .sort((a, b) => b.events - a.events || b.score - a.score)
+    .slice(0, 5)
+    .map((topic, index) => {
+      const prev = index < 4 ? topic.events - 1 : topic.events - 2;
+      const change = Math.max(0, Math.round(((topic.events - Math.max(1, prev)) / Math.max(1, prev)) * 100));
+      return {
+        label: topic.label,
+        events: topic.events,
+        change: `+${change}%`,
+      };
+    });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -819,7 +864,12 @@ function TrendingTab() {
       <div className="space-y-2">
         <h4 className="text-xs text-text-secondary uppercase tracking-wider">Hot Topics</h4>
         <div className="space-y-2">
-          {mockTrendingTopics.map((topic, index) => (
+          {topics.length === 0 && (
+            <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">
+              No events yet to derive trending topics.
+            </div>
+          )}
+          {topics.map((topic, index) => (
             <div key={index} className="flex items-center justify-between p-3 bg-bg-primary rounded-lg hover:bg-gray-800 cursor-pointer">
               <div>
                 <p className="text-sm text-white">{topic.label}</p>
@@ -834,7 +884,25 @@ function TrendingTab() {
   );
 }
 
-function InterestsTab() {
+function InterestsTab({ events = [] }) {
+  const sectorMap = new Map();
+  events.forEach((evt) => {
+    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
+    assets.forEach((asset) => {
+      const tag = asset.sector || 'Uncategorized';
+      sectorMap.set(tag, (sectorMap.get(tag) || 0) + 1);
+    });
+  });
+  const maxWeight = Math.max(...Array.from(sectorMap.values()), 1);
+  const interests = Array.from(sectorMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([tag, score], idx) => ({
+      tag,
+      weight: Math.round((score / maxWeight) * 100),
+      notifications: idx % 2 === 0,
+    }));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
@@ -846,7 +914,12 @@ function InterestsTab() {
       </div>
       
       <div className="space-y-3">
-        {mockInterests.map((interest, index) => (
+        {interests.length === 0 && (
+          <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">
+            No impacted sectors yet to build interest profile.
+          </div>
+        )}
+        {interests.map((interest, index) => (
           <div key={index} className="p-3 bg-bg-primary rounded-lg">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-white">{interest.tag}</span>
@@ -868,7 +941,24 @@ function InterestsTab() {
   );
 }
 
-function PredictionsTab() {
+function PredictionsTab({ events = [] }) {
+  const rows = [];
+  events.forEach((evt) => {
+    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
+    assets.forEach((asset) => {
+      rows.push({
+        asset: asset.ticker || 'N/A',
+        prediction: asset.prediction || 'NEUTRAL',
+        confidence: Math.round(Number(asset.confidence || 0) * 100),
+        status: asset.validation_status ? 'VALIDATED' : 'ACTIVE',
+        timeLeft: asset.validation_status ? null : 'Pending',
+        accuracy: asset.validation_status === 'CORRECT' ? 'CORRECT' : asset.validation_status === 'INCORRECT' ? 'INCORRECT' : null,
+      });
+    });
+  });
+
+  const predictions = rows.slice(0, 6);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -879,7 +969,12 @@ function PredictionsTab() {
       <div className="space-y-2">
         <h4 className="text-xs text-text-secondary uppercase tracking-wider">Active & Recent</h4>
         <div className="space-y-3">
-          {mockPredictions.map((pred, index) => (
+          {predictions.length === 0 && (
+            <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">
+              No prediction records available yet.
+            </div>
+          )}
+          {predictions.map((pred, index) => (
             <div key={index} className="p-3 bg-bg-primary rounded-lg border border-gray-800">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-mono text-accent-blue">{pred.asset}</span>
@@ -988,7 +1083,7 @@ function SettingsTab() {
   );
 }
 
-export default function RightPanel({ isExpanded, setIsExpanded }) {
+export default function RightPanel({ isExpanded, setIsExpanded, events = [], validations = [], backendActions = [] }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -1013,15 +1108,15 @@ export default function RightPanel({ isExpanded, setIsExpanded }) {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardTab />;
+        return <DashboardTab events={events} validations={validations} backendActions={backendActions} />;
       case 'discover':
         return <DiscoverTab />;
       case 'trending':
-        return <TrendingTab />;
+        return <TrendingTab events={events} />;
       case 'interests':
-        return <InterestsTab />;
+        return <InterestsTab events={events} />;
       case 'predictions':
-        return <PredictionsTab />;
+        return <PredictionsTab events={events} />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -1144,21 +1239,29 @@ export default function RightPanel({ isExpanded, setIsExpanded }) {
 }
 
 // Mobile-optimized version that slides up from bottom
-export function MobileRightPanel({ isExpanded, setIsExpanded, activeTab, setActiveTab }) {
+export function MobileRightPanel({
+  isExpanded,
+  setIsExpanded,
+  activeTab,
+  setActiveTab,
+  events = [],
+  validations = [],
+  backendActions = [],
+}) {
   const [showContent, setShowContent] = useState(false);
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardTab />;
+        return <DashboardTab events={events} validations={validations} backendActions={backendActions} />;
       case 'discover':
         return <DiscoverTab />;
       case 'trending':
-        return <TrendingTab />;
+        return <TrendingTab events={events} />;
       case 'interests':
-        return <InterestsTab />;
+        return <InterestsTab events={events} />;
       case 'predictions':
-        return <PredictionsTab />;
+        return <PredictionsTab events={events} />;
       case 'settings':
         return <SettingsTab />;
       default:

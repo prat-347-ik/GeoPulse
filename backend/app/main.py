@@ -253,9 +253,12 @@ async def validate_event(
 async def get_price(
     ticker: str = Query(..., min_length=1, max_length=10),
     price_range: str = Query("1d", pattern="^(1h|1d|1w|1m)$"),
+    legacy_range: Optional[str] = Query(None, alias="range", pattern="^(1h|1d|1w|1m)$"),
 ):
     """Get price data for a ticker (mock data for demo)."""
     try:
+        effective_range = legacy_range or price_range
+
         # Generate mock price data
         now = datetime.now(timezone.utc)
 
@@ -265,7 +268,7 @@ async def get_price(
             "1w": 168,
             "1m": 720,
         }
-        hours = range_hours.get(price_range, 24)
+        hours = range_hours.get(effective_range, 24)
 
         # Add some variety based on ticker
         ticker_seed = sum(ord(c) for c in ticker)
@@ -297,7 +300,7 @@ async def get_price(
                 "status": "error",
                 "message": "Unable to fetch price data",
                 "ticker": ticker,
-                "price_range": price_range,
+                "price_range": effective_range,
                 "error": str(exc),
             },
         )
