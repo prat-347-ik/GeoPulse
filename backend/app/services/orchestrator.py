@@ -10,6 +10,10 @@ from typing import Any
 
 from app.analysis.pipeline import AnalysisPipeline
 from app.core.config import ENABLE_MARKET_VALIDATION
+from app.nlp.event_extractor import (
+	extract_geopolitical_triggers,
+	extract_geopolitical_triggers_async,
+)
 from app.nlp.pipeline import enrich_article_with_nlp
 from app.nlp.pipeline import enrich_article_with_nlp_async
 from app.validation.market_validator import validate_event_assets
@@ -130,19 +134,32 @@ class AnalysisOrchestrator:
 		self.event_store = event_store or EventStore(load_seed_events())
 
 	def analyze(self, article: dict[str, Any]) -> dict[str, Any]:
-		return self.pipeline.analyze(article)
+		article_with_signals = dict(article)
+		article_with_signals.setdefault("geopolitical_signals", extract_geopolitical_triggers(article))
+		return self.pipeline.analyze(article_with_signals)
 
 	def analyze_with_nlp(self, article: dict[str, Any]) -> dict[str, Any]:
-		deterministic = self.analyze(article)
-		return enrich_article_with_nlp(article, deterministic)
+		article_with_signals = dict(article)
+		article_with_signals.setdefault("geopolitical_signals", extract_geopolitical_triggers(article))
+		deterministic = self.pipeline.analyze(article_with_signals)
+		return enrich_article_with_nlp(article_with_signals, deterministic)
 
 	async def analyze_with_nlp_async(self, article: dict[str, Any]) -> dict[str, Any]:
-		deterministic = self.analyze(article)
+		article_with_signals = dict(article)
 		use_local_llm = os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true"
+		if use_local_llm:
+			article_with_signals["geopolitical_signals"] = await extract_geopolitical_triggers_async(
+				article,
+				use_local_llm=True,
+			)
+		else:
+			article_with_signals.setdefault("geopolitical_signals", extract_geopolitical_triggers(article))
+
+		deterministic = self.pipeline.analyze(article_with_signals)
 		if not use_local_llm:
-			return enrich_article_with_nlp(article, deterministic)
+			return enrich_article_with_nlp(article_with_signals, deterministic)
 		return await enrich_article_with_nlp_async(
-			article=article,
+			article=article_with_signals,
 			deterministic_results=deterministic,
 			use_local_llm=True,
 		)

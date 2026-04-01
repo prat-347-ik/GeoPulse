@@ -66,6 +66,8 @@ class SourceProfile(BaseModel):
     trust: float = Field(default=0.5, ge=0, le=1)
     event_class_hints: List[str] = Field(default_factory=list)
     domain_weighting: Dict[str, float] = Field(default_factory=dict)
+    geopolitical_signals: Optional[Dict[str, object]] = None
+    geopolitical_reasoning: Optional[Dict[str, object]] = None
 
 
 class EventMeta(BaseModel):
@@ -121,6 +123,7 @@ class Event(BaseModel):
     why: str = Field(max_length=500)
     meta: EventMeta
     entities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+    geopolitical_signals: Optional[Dict[str, object]] = None
     summary_explanation: Optional[str] = ""
     explanation_source: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -149,6 +152,7 @@ class EventCreate(BaseModel):
     why: str = Field(max_length=500)
     meta: EventMeta
     entities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+    geopolitical_signals: Optional[Dict[str, object]] = None
     summary_explanation: Optional[str] = ""
     explanation_source: Optional[str] = None
     tags: Optional[List[str]] = None

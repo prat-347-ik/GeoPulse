@@ -30,8 +30,11 @@ import {
   Eye,
   Share2,
   Bookmark,
-  MoreHorizontal
+  MoreHorizontal,
+  Lightbulb,
 } from 'lucide-react';
+import ReasoningChainVisualizer from './ReasoningChainVisualizer';
+import { fetchEventExplanation } from '../lib/api';
 
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -39,6 +42,7 @@ const tabs = [
   { id: 'trending', label: 'Trending', icon: TrendingUp },
   { id: 'interests', label: 'My Interests', icon: Heart },
   { id: 'predictions', label: 'My Predictions', icon: Target },
+  { id: 'explanation', label: 'Explain', icon: Lightbulb },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -685,6 +689,254 @@ function FullscreenPredictions({ onClose }) {
   );
 }
 
+function FullscreenExplanation({ onClose, events = [] }) {
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [explanationData, setExplanationData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSelectEvent = async (eventId) => {
+    if (selectedEventId === eventId && explanationData) {
+      setSelectedEventId(null);
+      setExplanationData(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await fetchEventExplanation(eventId);
+      setExplanationData(data);
+      setSelectedEventId(eventId);
+    } catch (error) {
+      console.error('Failed to fetch explanation:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] bg-bg-primary overflow-hidden"
+    >
+      <div className="min-h-screen flex flex-col">
+        {/* Header */}
+        <div className="sticky top-0 bg-bg-primary/95 backdrop-blur-sm border-b border-gray-800 px-6 py-4 flex items-center justify-between z-10">
+          <div className="flex items-center gap-3">
+            <Lightbulb className="w-6 h-6 text-accent-amber" />
+            <h1 className="text-xl font-bold text-white">XAI - Reasoning Chain Explainer</h1>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded-lg transition-colors">
+            <X className="w-6 h-6 text-text-secondary hover:text-white" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden flex">
+          {/* Event Selector */}
+          <div className="w-80 max-w-sm border-r border-gray-800 flex flex-col bg-bg-card/50">
+            <div className="p-4 border-b border-gray-800">
+              <h3 className="text-sm font-semibold text-white mb-3">Events</h3>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {events.slice(0, 20).map((event) => (
+                  <button
+                    key={event.event_id}
+                    onClick={() => handleSelectEvent(event.event_id)}
+                    className={`w-full text-left p-3 rounded-lg transition-colors ${
+                      selectedEventId === event.event_id
+                        ? 'bg-accent-amber/20 border border-accent-amber'
+                        : 'bg-bg-primary border border-gray-700 hover:border-gray-600'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold text-white line-clamp-2 mb-1">
+                      {event.headline?.substring(0, 60)}
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-secondary">{event.event_type}</span>
+                      <span className="px-2 py-1 bg-accent-blue/20 text-accent-blue rounded text-xs">
+                        {Math.round(event.confidence * 100)}%
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Visualization Area */}
+          <div className="flex-1 overflow-auto p-6">
+            {loading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-2 border-accent-blue border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-text-secondary">Loading reasoning chain...</p>
+                </div>
+              </div>
+            ) : selectedEventId && explanationData ? (
+              <div className="space-y-4 max-w-6xl">
+                {/* Title */}
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">{explanationData.headline}</h2>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-text-secondary">Event Type:</span>
+                      <span className="px-3 py-1 bg-accent-blue/20 text-accent-blue rounded-lg text-sm font-semibold">
+                        {explanationData.event_type}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-text-secondary">Confidence:</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-accent-green rounded-full transition-all"
+                            style={{ width: `${explanationData.confidence * 100}%` }}
+                          />
+                        </div>
+                        <span className="font-semibold text-accent-green">{Math.round(explanationData.confidence * 100)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* React Flow Visualization */}
+                <div className="bg-bg-card rounded-xl border border-gray-800 overflow-hidden" style={{ height: '400px' }}>
+                  <ReasoningChainVisualizer reasoningData={explanationData} />
+                </div>
+
+                {/* Detailed Breakdown */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Extraction Details */}
+                  <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
+                    <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-accent-amber" />
+                      Geopolitical Extraction
+                    </h3>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="text-text-secondary">Trigger Type:</span>
+                        <p className="text-white font-semibold">
+                          {explanationData.reasoning_chain?.extraction?.trigger_type || 'None'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-text-secondary">Regions:</span>
+                        <div className="flex gap-1 flex-wrap mt-1">
+                          {(explanationData.reasoning_chain?.extraction?.regions || []).map((r, i) => (
+                            <span key={i} className="px-2 py-1 bg-accent-blue/20 text-accent-blue rounded text-xs">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-gray-700">
+                        <div>
+                          <span className="text-text-secondary">Risk Sentiment</span>
+                          <p className={`font-semibold ${
+                            explanationData.reasoning_chain?.extraction?.risk_sentiment === 'RISK_OFF' ? 'text-accent-red' :
+                            explanationData.reasoning_chain?.extraction?.risk_sentiment === 'RISK_ON' ? 'text-accent-green' :
+                            'text-text-secondary'
+                          }`}>
+                            {explanationData.reasoning_chain?.extraction?.risk_sentiment}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-text-secondary">Safe Haven</span>
+                          <p className={`font-semibold ${
+                            explanationData.reasoning_chain?.extraction?.safe_haven_demand === 'UP' ? 'text-accent-green' :
+                            'text-text-secondary'
+                          }`}>
+                            {explanationData.reasoning_chain?.extraction?.safe_haven_demand}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reasoning Details */}
+                  <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
+                    <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-accent-green" />
+                      Second-Order Reasoning
+                    </h3>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="text-text-secondary">Reasoning Strength:</span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-accent-green rounded-full transition-all"
+                              style={{ width: `${Math.min(explanationData.reasoning_chain?.reasoning?.reasoning_strength || 0, 1) * 100}%` }}
+                            />
+                          </div>
+                          <span className="font-semibold text-accent-green">
+                            {Math.round((explanationData.reasoning_chain?.reasoning?.reasoning_strength || 0) * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-gray-700">
+                        <span className="text-text-secondary">Second-Order Effects:</span>
+                        <div className="mt-2 space-y-1">
+                          {(explanationData.reasoning_chain?.reasoning?.second_order_effects || []).map((effect, i) => (
+                            <div key={i} className="text-xs text-text-secondary line-clamp-2">• {effect}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Asset Predictions */}
+                  <div className="p-4 bg-bg-card rounded-xl border border-gray-800 lg:col-span-2">
+                    <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                      <Target className="w-5 h-5 text-accent-blue" />
+                      Asset Predictions
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {(explanationData.reasoning_chain?.output?.asset_predictions || []).map((pred, i) => (
+                        <div key={i} className="p-3 bg-bg-primary rounded-lg border border-gray-700">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono text-accent-blue text-lg">{pred.ticker}</span>
+                            <span className={`font-semibold text-xs px-2 py-1 rounded ${
+                              pred.prediction === 'BULLISH' ? 'bg-accent-green/20 text-accent-green' :
+                              pred.prediction === 'BEARISH' ? 'bg-accent-red/20 text-accent-red' :
+                              'bg-gray-700 text-text-secondary'
+                            }`}>
+                              {pred.prediction === 'BULLISH' ? '↑' : '↓'} {pred.prediction}
+                            </span>
+                          </div>
+                          <div className="text-xs text-text-secondary mb-2">{pred.sector}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-accent-blue rounded-full"
+                                style={{ width: `${pred.confidence * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-accent-blue">{Math.round(pred.confidence * 100)}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <Lightbulb className="w-16 h-16 text-accent-amber/30 mx-auto mb-4" />
+                  <p className="text-text-secondary text-lg">Select an event to view its reasoning chain</p>
+                  <p className="text-text-secondary/60 text-sm mt-2">Choose from the list on the left to explore the "why"</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function DashboardTab({ events = [], validations = [], backendActions = [] }) {
   const now = Date.now();
   const recentWindowMs = 24 * 60 * 60 * 1000;
@@ -1013,6 +1265,126 @@ function PredictionsTab({ events = [] }) {
   );
 }
 
+function ExplanationTab({ events = [] }) {
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [explanationData, setExplanationData] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
+
+  const handleSelectEvent = async (eventId) => {
+    if (selectedEventId === eventId && explanationData) {
+      setSelectedEventId(null);
+      setExplanationData(null);
+      return;
+    }
+
+    setLoadingId(eventId);
+    try {
+      const data = await fetchEventExplanation(eventId);
+      setExplanationData(data);
+      setSelectedEventId(eventId);
+    } catch (error) {
+      console.error('Failed to fetch explanation:', error);
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const displayEvents = events.slice(0, 5);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mb-3">
+        <Lightbulb className="w-4 h-4 text-accent-amber" />
+        <h3 className="text-sm font-semibold text-white">Explanation</h3>
+      </div>
+
+      {selectedEventId && explanationData ? (
+        <div className="space-y-3">
+          <button
+            onClick={() => handleSelectEvent(selectedEventId)}
+            className="text-xs text-accent-blue hover:text-accent-blue/80 transition-colors flex items-center gap-1"
+          >
+            ← Back to Events
+          </button>
+          
+          <div className="p-3 bg-bg-primary rounded-lg border border-gray-700">
+            <div className="text-xs text-text-secondary mb-2">Reasoning Chain for</div>
+            <div className="text-sm font-semibold text-white mb-3 line-clamp-2">
+              {explanationData.headline}
+            </div>
+
+            {/* Quick Stats */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="text-xs">
+                <span className="text-text-secondary">Event Type</span>
+                <p className="text-accent-blue font-semibold">{explanationData.event_type}</p>
+              </div>
+              <div className="text-xs">
+                <span className="text-text-secondary">Confidence</span>
+                <p className="text-accent-green font-semibold">{Math.round(explanationData.confidence * 100)}%</p>
+              </div>
+            </div>
+
+            {/* Extraction Summary */}
+            {explanationData.reasoning_chain?.extraction?.trigger_type && (
+              <div className="text-xs mb-3 p-2 bg-accent-amber/10 rounded border border-accent-amber/30">
+                <div className="text-accent-amber font-semibold mb-1">Trigger Detected</div>
+                <div className="text-text-secondary">
+                  {explanationData.reasoning_chain.extraction.trigger_type.replace(/_/g, ' ').toUpperCase()}
+                </div>
+              </div>
+            )}
+
+            {/* Second Order Effects */}
+            {explanationData.reasoning_chain?.reasoning?.second_order_effects?.length > 0 && (
+              <div className="text-xs">
+                <div className="text-text-secondary mb-1 font-semibold">Market Effects</div>
+                <div className="space-y-1">
+                  {explanationData.reasoning_chain.reasoning.second_order_effects.slice(0, 2).map((effect, i) => (
+                    <div key={i} className="text-text-secondary text-[11px]">• {effect.substring(0, 60)}...</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button className="w-full text-xs text-accent-blue hover:text-accent-blue/80 font-semibold mt-2 py-1 transition-colors">
+              View Full Reasoning Chain →
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-xs text-text-secondary mb-2">Recent Events</div>
+          {displayEvents.length > 0 ? (
+            displayEvents.map((event) => (
+              <button
+                key={event.event_id}
+                onClick={() => handleSelectEvent(event.event_id)}
+                disabled={loadingId === event.event_id}
+                className={`w-full text-left p-2 rounded-lg transition-colors ${
+                  loadingId === event.event_id
+                    ? 'opacity-50 cursor-wait'
+                    : 'hover:bg-gray-700'
+                } bg-bg-primary border border-gray-700`}
+              >
+                <div className="text-xs font-semibold text-white line-clamp-1 mb-1">
+                  {event.headline?.substring(0, 50)}...
+                </div>
+                <div className="flex items-center justify-between text-xs text-text-secondary">
+                  <span>{event.event_type}</span>
+                  <span className="text-accent-blue">{Math.round(event.confidence * 100)}%</span>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="text-xs text-text-secondary py-4 text-center">No events available</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsTab() {
   return (
     <div className="space-y-4">
@@ -1117,6 +1489,8 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
         return <InterestsTab events={events} />;
       case 'predictions':
         return <PredictionsTab events={events} />;
+      case 'explanation':
+        return <ExplanationTab events={events} />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -1136,6 +1510,8 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
         return <FullscreenInterests onClose={closeFullscreen} />;
       case 'predictions':
         return <FullscreenPredictions onClose={closeFullscreen} />;
+      case 'explanation':
+        return <FullscreenExplanation onClose={closeFullscreen} events={events} />;
       default:
         return null;
     }
@@ -1262,6 +1638,8 @@ export function MobileRightPanel({
         return <InterestsTab events={events} />;
       case 'predictions':
         return <PredictionsTab events={events} />;
+      case 'explanation':
+        return <ExplanationTab events={events} />;
       case 'settings':
         return <SettingsTab />;
       default:

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from urllib import request as urllib_request
 from urllib.error import URLError, HTTPError
@@ -238,3 +239,55 @@ def get_llm_runtime_health() -> dict[str, object]:
         status["error"] = str(exc)
 
     return status
+
+
+def _extract_json_object(raw_text: str) -> dict[str, object] | None:
+    text = (raw_text or "").strip()
+    if not text:
+        return None
+
+    fenced_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    candidate = fenced_match.group(1) if fenced_match else text
+
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, dict) else None
+    except (ValueError, TypeError):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            parsed = json.loads(text[start : end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except (ValueError, TypeError):
+            return None
+
+
+async def generate_local_llm_json_with_meta(
+    prompt: str,
+    fallback_payload: dict[str, object],
+    timeout_seconds: float | None = None,
+) -> dict[str, object]:
+    """Generate structured JSON from local LLM with fallback behavior."""
+    fallback_text = json.dumps(fallback_payload, ensure_ascii=True)
+    result = await generate_local_llm_explanation_with_meta(
+        prompt=prompt,
+        fallback_text=fallback_text,
+        timeout_seconds=timeout_seconds,
+    )
+
+    raw_text = str(result.get("text", ""))
+    payload = _extract_json_object(raw_text)
+    if payload is None:
+        return {
+            "payload": fallback_payload,
+            "source": "fallback",
+            "llm_latency_ms": round(float(result.get("llm_latency_ms", 0.0) or 0.0), 2),
+        }
+
+    return {
+        "payload": payload,
+        "source": result.get("source", "fallback"),
+        "llm_latency_ms": round(float(result.get("llm_latency_ms", 0.0) or 0.0), 2),
+    }

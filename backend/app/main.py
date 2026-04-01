@@ -164,6 +164,94 @@ async def get_event(event_id: str):
     }
 
 
+@app.get("/api/events/{event_id}/explain")
+async def explain_event(event_id: str):
+    """Get detailed reasoning chain explanation for an event (XAI visualization)."""
+    event = analysis_orchestrator.get_event(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Build comprehensive reasoning chain for visualization
+    headline = event.get("headline", "")
+    macro_effect = event.get("macro_effect", "")
+    explanation = event.get("explanation", "")
+    event_type = event.get("event_type", "UNKNOWN")
+    confidence = event.get("confidence", 0.5)
+    
+    # Extract geopolitical signals if available
+    geopolitical_signals = event.get("geopolitical_signals", {})
+    trigger_type = geopolitical_signals.get("trigger_type", "None")
+    regions = geopolitical_signals.get("regions", [])
+    risk_sentiment = geopolitical_signals.get("risk_sentiment", "NEUTRAL")
+    safe_haven_demand = geopolitical_signals.get("safe_haven_demand", "NEUTRAL")
+    energy_supply_risk = geopolitical_signals.get("energy_supply_risk", "NEUTRAL")
+    extraction_confidence = geopolitical_signals.get("confidence", 0.5)
+    
+    # Extract reasoning output if available
+    geopolitical_reasoning = event.get("geopolitical_reasoning", {})
+    overlay_impacts = geopolitical_reasoning.get("overlay_sector_impacts", {})
+    second_order_effects = geopolitical_reasoning.get("second_order_effects", [])
+    reasoning_strength = geopolitical_reasoning.get("reasoning_strength", 0.0)
+    
+    # Build sector impacts from affected_assets and sector_impacts
+    sector_impacts = {}
+    for sector_impact in event.get("sector_impacts", []):
+        sector = sector_impact.get("sector", "Unknown")
+        weight = sector_impact.get("weight", 0.0)
+        sector_impacts[sector] = weight
+    
+    # Map affected assets to predictions
+    asset_predictions = []
+    for asset in event.get("affected_assets", []):
+        asset_predictions.append({
+            "ticker": asset.get("ticker", ""),
+            "sector": asset.get("sector", ""),
+            "prediction": asset.get("prediction", "NEUTRAL"),
+            "confidence": asset.get("confidence", 0.5),
+            "reason": asset.get("reason", ""),
+            "validation_status": asset.get("validation_status", "PENDING"),
+        })
+    
+    return {
+        "status": "success",
+        "data": {
+            "event_id": event_id,
+            "headline": headline,
+            "macro_effect": macro_effect,
+            "explanation": explanation,
+            "event_type": event_type,
+            "confidence": confidence,
+            "reasoning_chain": {
+                "input": {
+                    "headline": headline,
+                    "event_type": event_type,
+                },
+                "extraction": {
+                    "trigger_type": trigger_type,
+                    "regions": regions,
+                    "risk_sentiment": risk_sentiment,
+                    "safe_haven_demand": safe_haven_demand,
+                    "energy_supply_risk": energy_supply_risk,
+                    "confidence": extraction_confidence,
+                },
+                "reasoning": {
+                    "second_order_effects": second_order_effects,
+                    "overlay_sector_impacts": overlay_impacts,
+                    "reasoning_strength": reasoning_strength,
+                },
+                "analysis": {
+                    "sector_impacts": sector_impacts,
+                    "base_confidence": confidence,
+                },
+                "output": {
+                    "asset_predictions": asset_predictions,
+                    "validation_summary": event.get("validation_summary", {}),
+                },
+            },
+        },
+    }
+
+
 @app.get("/api/validations", response_model=ValidationResponse)
 async def get_validations(limit: int = Query(20, ge=1, le=100)):
     """Get validation results."""

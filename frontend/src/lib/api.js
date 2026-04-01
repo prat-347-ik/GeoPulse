@@ -74,6 +74,21 @@ export async function fetchEvent(eventId) {
 }
 
 /**
+ * Fetch detailed reasoning chain explanation for XAI visualization
+ * @param {string} eventId - Event ID to fetch explanation for
+ * @returns {Promise<Object>} Reasoning chain data with all analysis steps
+ */
+export async function fetchEventExplanation(eventId) {
+  try {
+    const data = await apiGet(`/events/${eventId}/explain`);
+    return data.data || data;
+  } catch (error) {
+    console.error(`Failed to fetch explanation for event ${eventId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Fetch validations from the backend
  * @param {number} limit - Maximum number of validations to fetch (default: 20, max: 100)
  * @returns {Promise<Array>} List of validations

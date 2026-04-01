@@ -34,6 +34,18 @@ SECTOR_ASSETS: dict[str, list[dict[str, str]]] = {
         {"ticker": "FCX", "name": "Freeport-McMoRan", "asset_class": "Equity"},
         {"ticker": "NEM", "name": "Newmont", "asset_class": "Equity"},
     ],
+    "Precious Metals": [
+        {"ticker": "GLD", "name": "SPDR Gold Shares", "asset_class": "Commodity"},
+        {"ticker": "SLV", "name": "iShares Silver Trust", "asset_class": "Commodity"},
+    ],
+    "Sovereign Bonds": [
+        {"ticker": "TLT", "name": "iShares 20+ Year Treasury Bond ETF", "asset_class": "Equity"},
+        {"ticker": "IEF", "name": "iShares 7-10 Year Treasury Bond ETF", "asset_class": "Equity"},
+    ],
+    "FX": [
+        {"ticker": "UUP", "name": "Invesco DB US Dollar Index Bullish Fund", "asset_class": "Forex"},
+        {"ticker": "FXY", "name": "Invesco CurrencyShares Japanese Yen", "asset_class": "Forex"},
+    ],
     "Industrials": [
         {"ticker": "CAT", "name": "Caterpillar", "asset_class": "Equity"},
         {"ticker": "DE", "name": "Deere", "asset_class": "Equity"},

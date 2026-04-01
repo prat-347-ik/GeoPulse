@@ -60,6 +60,12 @@ def build_ripple_event(
         {"type": "asset", "text": str(primary_asset["ticker"])},
     ]
 
+    geopolitical_signals = article.get("geopolitical_signals")
+    if isinstance(geopolitical_signals, dict):
+        trigger_label = str(geopolitical_signals.get("trigger_type", "")).strip()
+        if trigger_label:
+            logic_chain.insert(1, {"type": "macro", "text": f"trigger:{trigger_label}"})
+
     normalized_assets = []
     for asset in assets:
         normalized_assets.append(
@@ -113,4 +119,5 @@ def build_ripple_event(
                 "domain_weighting": {},
             },
         },
+        "geopolitical_signals": geopolitical_signals if isinstance(geopolitical_signals, dict) else None,
     }

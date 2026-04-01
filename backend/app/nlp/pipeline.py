@@ -14,6 +14,10 @@ from typing import Any
 import logging
 
 from app.nlp.entity_extractor import extract_entities
+from app.nlp.event_extractor import (
+    extract_geopolitical_triggers,
+    extract_geopolitical_triggers_async,
+)
 from app.nlp.explanation_generator import (
     generate_summary_explanation,
     generate_summary_explanation_async,
@@ -44,9 +48,11 @@ def enrich_article_with_nlp(
         )
 
         entities = extract_entities(text)
+        extracted_triggers = extract_geopolitical_triggers(article)
         summary = generate_summary_explanation(article, deterministic_results)
 
         enriched["entities"] = entities
+        enriched["geopolitical_signals"] = extracted_triggers
         enriched["summary_explanation"] = summary
         enriched["explanation_source"] = "deterministic_fallback"
         enriched["llm_latency_ms"] = 0.0
@@ -54,6 +60,7 @@ def enrich_article_with_nlp(
     except Exception as exc:
         logger.exception("NLP enrichment failed, returning deterministic result: %s", exc)
         enriched.setdefault("entities", {"organizations": [], "locations": [], "people": []})
+        enriched.setdefault("geopolitical_signals", extract_geopolitical_triggers(article))
         enriched.setdefault("summary_explanation", "")
         enriched.setdefault("explanation_source", "deterministic_fallback")
         enriched.setdefault("llm_latency_ms", 0.0)
@@ -77,6 +84,7 @@ async def enrich_article_with_nlp_async(
             if part
         )
         entities = extract_entities(text)
+        extracted_triggers = await extract_geopolitical_triggers_async(article, use_local_llm=use_local_llm)
         summary, explanation_source, llm_latency_ms = await generate_summary_explanation_async(
             article=article,
             deterministic_results=deterministic_results,
@@ -84,13 +92,16 @@ async def enrich_article_with_nlp_async(
         )
 
         enriched["entities"] = entities
+        enriched["geopolitical_signals"] = extracted_triggers
         enriched["summary_explanation"] = summary
         enriched["explanation_source"] = explanation_source
-        enriched["llm_latency_ms"] = round(float(llm_latency_ms), 2)
+        extraction_latency = float(extracted_triggers.get("llm_latency_ms", 0.0) or 0.0)
+        enriched["llm_latency_ms"] = round(max(float(llm_latency_ms), extraction_latency), 2)
         return enriched
     except Exception as exc:
         logger.exception("Async NLP enrichment failed, returning deterministic result: %s", exc)
         enriched.setdefault("entities", {"organizations": [], "locations": [], "people": []})
+        enriched.setdefault("geopolitical_signals", extract_geopolitical_triggers(article))
         enriched.setdefault("summary_explanation", "")
         enriched.setdefault("explanation_source", "deterministic_fallback")
         enriched.setdefault("llm_latency_ms", 0.0)

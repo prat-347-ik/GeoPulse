@@ -5,6 +5,10 @@ from typing import Any
 from app.analysis.asset_registry import assets_for_sector
 from app.analysis.confidence_model import compute_confidence, confidence_meta
 from app.analysis.event_classifier import classify_event
+from app.analysis.reasoning_engine import (
+    blend_sector_impacts,
+    derive_geopolitical_second_order_effects,
+)
 from app.analysis.ripple_builder import build_ripple_event
 from app.analysis.sector_mapper import map_macro_to_sectors
 
@@ -35,6 +39,14 @@ class AnalysisPipeline:
                 weighted_impacts[sector] = round(max(-1.0, min(1.0, weight * multiplier)), 3)
             sector_impacts = weighted_impacts
 
+        geopolitical_signals = article.get("geopolitical_signals") if isinstance(article.get("geopolitical_signals"), dict) else {}
+        geopolitical_reasoning = derive_geopolitical_second_order_effects(article, geopolitical_signals)
+        sector_impacts = blend_sector_impacts(
+            base_impacts=sector_impacts,
+            overlay_impacts=geopolitical_reasoning.get("overlay_sector_impacts", {}),
+            reasoning_strength=float(geopolitical_reasoning.get("reasoning_strength", 0.0) or 0.0),
+        )
+
         ordered_sector_impacts = dict(
             sorted(
                 sector_impacts.items(),
@@ -57,6 +69,13 @@ class AnalysisPipeline:
             sector_weight=primary_weight,
             signal_strength=classification.signal_strength,
         )
+        event_confidence = round(
+            min(
+                0.99,
+                event_confidence + 0.08 * float(geopolitical_reasoning.get("reasoning_strength", 0.0) or 0.0),
+            ),
+            3,
+        )
 
         assets: list[dict[str, Any]] = []
         seen_tickers: set[str] = set()
@@ -76,7 +95,15 @@ class AnalysisPipeline:
                         "prediction": prediction,
                         "confidence": max(
                             0.35,
-                            round(min(0.99, event_confidence * (0.85 + abs(weight) * 0.15)), 3),
+                            round(
+                                min(
+                                    0.99,
+                                    event_confidence
+                                    * (0.82 + abs(weight) * 0.18)
+                                    * (1.0 + 0.1 * float(geopolitical_reasoning.get("reasoning_strength", 0.0) or 0.0)),
+                                ),
+                                3,
+                            ),
                         ),
                     }
                 )
@@ -101,6 +128,8 @@ class AnalysisPipeline:
                 "trust": source_trust,
                 "event_class_hints": source_meta.get("event_class_hints", []),
                 "domain_weighting": domain_weighting,
+                "geopolitical_reasoning": geopolitical_reasoning,
+                "geopolitical_signals": geopolitical_signals,
             },
         )
 
