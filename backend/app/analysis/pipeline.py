@@ -93,6 +93,10 @@ class AnalysisPipeline:
                         **asset,
                         "sector": sector,
                         "prediction": prediction,
+                        "predicted_move_percent": round(
+                            max(-8.0, min(8.0, weight * (1.8 + (event_confidence * 2.2)))),
+                            2,
+                        ),
                         "confidence": max(
                             0.35,
                             round(

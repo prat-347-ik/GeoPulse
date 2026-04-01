@@ -74,6 +74,7 @@ export default function App() {
   const [llmPollMs, setLlmPollMs] = useState(30000);
   const [toasts, setToasts] = useState([]);
   const [backendActions, setBackendActions] = useState([]);
+  const [liveWsMessage, setLiveWsMessage] = useState(null);
 
   const pushToast = useCallback((type, title, message) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -98,6 +99,30 @@ export default function App() {
       },
       ...prev,
     ].slice(0, 25));
+  }, []);
+
+  const buildValidationRowsFromEvent = useCallback((eventPayload) => {
+    if (!eventPayload || !Array.isArray(eventPayload.affected_assets)) {
+      return [];
+    }
+
+    return eventPayload.affected_assets
+      .filter((asset) => asset && asset.validation_status)
+      .map((asset) => ({
+        event_id: eventPayload.event_id,
+        headline: eventPayload.headline || '',
+        predicted_direction: asset.prediction || 'NEUTRAL',
+        predicted_ticker: asset.ticker || '',
+        predicted_confidence: asset.confidence ?? 0.5,
+        predicted_move_percent: asset.predicted_move_percent ?? null,
+        horizon: '1d',
+        price_at_event: 0.0,
+        price_at_validation: 0.0,
+        actual_change_percent: asset.actual_move_24h ?? asset.actual_move_pct ?? 0,
+        actual_move_24h: asset.actual_move_24h ?? asset.actual_move_pct ?? null,
+        status: asset.validation_status,
+        validated_at: asset.validated_at,
+      }));
   }, []);
 
   // Get active event object
@@ -191,6 +216,7 @@ export default function App() {
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
+            setLiveWsMessage(message);
 
             if (message.type === 'new_event' && message.event) {
               setEvents((prevEvents) => {
@@ -199,7 +225,29 @@ export default function App() {
                 }
                 return [message.event, ...prevEvents];
               });
+
+              const rows = buildValidationRowsFromEvent(message.event);
+              if (rows.length > 0) {
+                setValidations((prev) => {
+                  const rest = prev.filter((v) => v.event_id !== message.event.event_id);
+                  return [...rows, ...rest].slice(0, 100);
+                });
+              }
+
               console.log('📡 New event received via WebSocket:', message.event.headline);
+            } else if (message.type === 'validation_update' && message.event) {
+              setEvents((prevEvents) => {
+                const withoutCurrent = prevEvents.filter((e) => e.event_id !== message.event.event_id);
+                return [message.event, ...withoutCurrent];
+              });
+
+              const rows = buildValidationRowsFromEvent(message.event);
+              setValidations((prev) => {
+                const rest = prev.filter((v) => v.event_id !== message.event.event_id);
+                return [...rows, ...rest].slice(0, 100);
+              });
+
+              console.log('✅ Validation update received via WebSocket:', message.event.event_id);
             } else if (message.type === 'status') {
               console.log('📊 Server status:', message.message);
             }
@@ -232,7 +280,7 @@ export default function App() {
         ws.close();
       }
     };
-  }, []);
+  }, [buildValidationRowsFromEvent]);
 
   const handleRefresh = () => {
     loadData();
@@ -447,6 +495,7 @@ export default function App() {
           events={events}
           validations={validations}
           backendActions={backendActions}
+          liveMessage={liveWsMessage}
         />
       )}
 
@@ -460,6 +509,7 @@ export default function App() {
           events={events}
           validations={validations}
           backendActions={backendActions}
+          liveMessage={liveWsMessage}
         />
       )}
 

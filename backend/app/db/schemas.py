@@ -86,7 +86,9 @@ class AffectedAsset(BaseModel):
     prediction: PredictionEnum
     confidence: float = Field(ge=0, le=1)
     reason: str = Field(max_length=200)
+    predicted_move_percent: Optional[float] = None
     actual_move_pct: Optional[float] = None
+    actual_move_24h: Optional[float] = None
     validation_status: Optional[str] = None
     validated_at: Optional[datetime] = None
 
@@ -176,10 +178,12 @@ class Validation(BaseModel):
     predicted_direction: PredictionEnum
     predicted_ticker: str
     predicted_confidence: float = Field(ge=0, le=1)
+    predicted_move_percent: Optional[float] = None
     horizon: str
     price_at_event: float
     price_at_validation: Optional[float] = None
     actual_change_percent: Optional[float] = None
+    actual_move_24h: Optional[float] = None
     status: ValidationStatus = ValidationStatus.PENDING
     validated_at: Optional[datetime] = None
 

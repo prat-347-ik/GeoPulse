@@ -40,6 +40,23 @@ def _status_for_prediction(prediction: str, pct_change: float | None) -> str:
     return "INCORRECT"
 
 
+def _status_for_predicted_move(predicted_move: float | None, actual_move_24h: float | None) -> str:
+    if actual_move_24h is None:
+        return "PENDING"
+    if predicted_move is None:
+        return _status_for_prediction("NEUTRAL", actual_move_24h)
+
+    # Treat near-flat outcomes as correct when prediction is near-flat as well.
+    if abs(predicted_move) < 0.15 and abs(actual_move_24h) < 0.15:
+        return "CORRECT"
+
+    if predicted_move > 0 and actual_move_24h > 0:
+        return "CORRECT"
+    if predicted_move < 0 and actual_move_24h < 0:
+        return "CORRECT"
+    return "INCORRECT"
+
+
 def validate_event_assets(event: dict[str, Any]) -> dict[str, Any]:
     """
     Validate predicted asset movement against latest market data.
@@ -57,6 +74,7 @@ def validate_event_assets(event: dict[str, Any]) -> dict[str, Any]:
     for asset in assets:
         ticker = str(asset.get("ticker", "")).strip().upper()
         prediction = str(asset.get("prediction", "NEUTRAL")).upper()
+        predicted_move_raw = _to_float(asset.get("predicted_move_percent"))
         validated_at = datetime.now(timezone.utc)
 
         pct_change: float | None = None
@@ -66,8 +84,13 @@ def validate_event_assets(event: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 pct_change = None
 
-        status = _status_for_prediction(prediction, pct_change)
+        if predicted_move_raw is None:
+            predicted_move_raw = 1.0 if prediction == "BULLISH" else -1.0 if prediction == "BEARISH" else 0.0
 
+        status = _status_for_predicted_move(predicted_move_raw, pct_change)
+
+        asset["predicted_move_percent"] = round(predicted_move_raw, 2)
+        asset["actual_move_24h"] = round(pct_change, 2) if pct_change is not None else None
         asset["actual_move_pct"] = round(pct_change, 2) if pct_change is not None else None
         asset["validation_status"] = status
         asset["validated_at"] = validated_at

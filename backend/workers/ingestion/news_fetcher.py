@@ -1,13 +1,12 @@
 import os
 import time
 import re
-import multiprocessing
 import socket
 from typing import Any
 from typing import cast
-import queue as queue_type
 import feedparser  # type: ignore
 import yaml
+from workers.queue.central_queue import build_queue, queue_backend
 
 # Set global timeout for feedparser (uses socket timeout)
 socket.setdefaulttimeout(15)
@@ -132,7 +131,7 @@ def load_source_registry(
     return sources
 
 
-def read_rss_feeds(queue: "multiprocessing.Queue[Any]") -> None:
+def read_rss_feeds(queue_client: Any) -> None:
     registry_file = _source_registry_path()
     legacy_feeds_file = _legacy_feeds_path()
 
@@ -207,9 +206,9 @@ def read_rss_feeds(queue: "multiprocessing.Queue[Any]") -> None:
                         }
 
                         try:
-                            queue.put(feed_data, timeout=2)
-                        except queue_type.Full:
-                            print("Queue full. Dropping article.")
+                            queue_client.put(feed_data, timeout=2)
+                        except Exception:
+                            print("Queue write failed. Dropping article.")
 
                         seen_links.add(article_id)
 
@@ -229,23 +228,11 @@ def read_rss_feeds(queue: "multiprocessing.Queue[Any]") -> None:
 
 if __name__ == "__main__":
     print("Starting RSS news fetcher standalone...")
-
-    queue: multiprocessing.Queue = multiprocessing.Queue(maxsize=1000)
-
-    process = multiprocessing.Process(target=read_rss_feeds, args=(queue,))
-    process.start()
+    raw_queue_name = os.getenv("RAW_ARTICLE_QUEUE", "geopulse:articles:raw")
+    queue_client = build_queue(queue_name=raw_queue_name, maxsize=1000)
+    print(f"Queue backend: {queue_backend()} queue={raw_queue_name}")
 
     try:
-        while True:
-            try:
-                item = queue.get_nowait()
-                print(f"Received: {item['headline']}")
-            except queue_type.Empty:
-                pass
-
-            time.sleep(1)
-
+        read_rss_feeds(queue_client)
     except (KeyboardInterrupt, SystemExit):
         print("Stopping fetcher...")
-        process.terminate()
-        process.join()

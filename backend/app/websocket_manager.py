@@ -65,6 +65,17 @@ class WebSocketManager:
         }
         await self.broadcast(message)
 
+    async def broadcast_validation(self, event: dict):
+        """
+        Broadcast validation updates for an event so clients can update hit-rate in real-time.
+        """
+        message = {
+            "type": "validation_update",
+            "event": event,
+            "validation_summary": event.get("validation_summary", {}),
+        }
+        await self.broadcast(message)
+
     async def send_connection_status(self, websocket: WebSocket, status: str = "connected"):
         """Send connection status to a specific client"""
         try:

@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import queue as _queue_mod
 import re
 import threading
@@ -60,6 +61,7 @@ import unicodedata
 from collections import OrderedDict
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse
+from workers.queue.central_queue import build_queue, queue_backend
 
 logger = logging.getLogger(__name__)
 
@@ -662,3 +664,55 @@ def deduplication_worker(
             logger.debug(
                 "Duplicate skipped: %r", article.get("headline", "")
             )
+
+
+def deduplication_worker_central_queue(
+    input_queue_name: str | None = None,
+    output_queue_name: str | None = None,
+    maxsize: int = _DEFAULT_MAXSIZE,
+    simhash_threshold: int = _DEFAULT_SIMHASH_THRESHOLD,
+    follow_redirects: bool = False,
+    mongo_collection: Any = None,
+) -> None:
+    """Run deduplication using a central queue backend (Redis by default)."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    raw_queue = input_queue_name or os.getenv("RAW_ARTICLE_QUEUE", "geopulse:articles:raw")
+    clean_queue = output_queue_name or os.getenv("CLEAN_ARTICLE_QUEUE", "geopulse:articles:clean")
+
+    input_queue = build_queue(queue_name=raw_queue, maxsize=1000)
+    output_queue = build_queue(queue_name=clean_queue, maxsize=1000)
+
+    logger.info(
+        "Deduplicator central queue worker started. backend=%s input=%s output=%s",
+        queue_backend(),
+        raw_queue,
+        clean_queue,
+    )
+
+    dedup = Deduplicator(
+        maxsize=maxsize,
+        simhash_threshold=simhash_threshold,
+        follow_redirects=follow_redirects,
+        mongo_collection=mongo_collection,
+    )
+
+    if mongo_collection is not None:
+        loaded = dedup.load_from_mongo()
+        logger.info("Restored %d fingerprint(s) from MongoDB.", loaded)
+
+    while True:
+        article = input_queue.get(timeout=5)
+        if article is None:
+            continue
+
+        if dedup.filter(article):
+            try:
+                output_queue.put(article, timeout=2)
+            except Exception as exc:
+                logger.warning("Central queue write failed -- dropping article: %s", exc)
+        else:
+            logger.debug("Duplicate skipped: %r", article.get("headline", ""))

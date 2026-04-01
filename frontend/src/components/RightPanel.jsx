@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
@@ -689,7 +689,7 @@ function FullscreenPredictions({ onClose }) {
   );
 }
 
-function FullscreenExplanation({ onClose, events = [] }) {
+function FullscreenExplanation({ onClose, events = [], liveMessage = null }) {
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [explanationData, setExplanationData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -712,6 +712,32 @@ function FullscreenExplanation({ onClose, events = [] }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!selectedEventId || !liveMessage?.event?.event_id) {
+      return;
+    }
+    if (liveMessage.event.event_id !== selectedEventId) {
+      return;
+    }
+
+    let isMounted = true;
+    const refreshReasoning = async () => {
+      try {
+        const data = await fetchEventExplanation(selectedEventId);
+        if (isMounted) {
+          setExplanationData(data);
+        }
+      } catch (error) {
+        console.error('Failed to refresh explanation from live update:', error);
+      }
+    };
+
+    refreshReasoning();
+    return () => {
+      isMounted = false;
+    };
+  }, [liveMessage, selectedEventId]);
 
   return (
     <motion.div
@@ -1265,7 +1291,7 @@ function PredictionsTab({ events = [] }) {
   );
 }
 
-function ExplanationTab({ events = [] }) {
+function ExplanationTab({ events = [], liveMessage = null }) {
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [explanationData, setExplanationData] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
@@ -1288,6 +1314,32 @@ function ExplanationTab({ events = [] }) {
       setLoadingId(null);
     }
   };
+
+  useEffect(() => {
+    if (!selectedEventId || !liveMessage?.event?.event_id) {
+      return;
+    }
+    if (liveMessage.event.event_id !== selectedEventId) {
+      return;
+    }
+
+    let isMounted = true;
+    const refreshReasoning = async () => {
+      try {
+        const data = await fetchEventExplanation(selectedEventId);
+        if (isMounted) {
+          setExplanationData(data);
+        }
+      } catch (error) {
+        console.error('Failed to refresh explanation from live update:', error);
+      }
+    };
+
+    refreshReasoning();
+    return () => {
+      isMounted = false;
+    };
+  }, [liveMessage, selectedEventId]);
 
   const displayEvents = events.slice(0, 5);
 
@@ -1455,7 +1507,7 @@ function SettingsTab() {
   );
 }
 
-export default function RightPanel({ isExpanded, setIsExpanded, events = [], validations = [], backendActions = [] }) {
+export default function RightPanel({ isExpanded, setIsExpanded, events = [], validations = [], backendActions = [], liveMessage = null }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -1490,7 +1542,7 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
       case 'predictions':
         return <PredictionsTab events={events} />;
       case 'explanation':
-        return <ExplanationTab events={events} />;
+        return <ExplanationTab events={events} liveMessage={liveMessage} />;
       case 'settings':
         return <SettingsTab />;
       default:
@@ -1511,7 +1563,7 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
       case 'predictions':
         return <FullscreenPredictions onClose={closeFullscreen} />;
       case 'explanation':
-        return <FullscreenExplanation onClose={closeFullscreen} events={events} />;
+        return <FullscreenExplanation onClose={closeFullscreen} events={events} liveMessage={liveMessage} />;
       default:
         return null;
     }
@@ -1623,6 +1675,7 @@ export function MobileRightPanel({
   events = [],
   validations = [],
   backendActions = [],
+  liveMessage = null,
 }) {
   const [showContent, setShowContent] = useState(false);
 
@@ -1639,7 +1692,7 @@ export function MobileRightPanel({
       case 'predictions':
         return <PredictionsTab events={events} />;
       case 'explanation':
-        return <ExplanationTab events={events} />;
+        return <ExplanationTab events={events} liveMessage={liveMessage} />;
       case 'settings':
         return <SettingsTab />;
       default:

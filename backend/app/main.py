@@ -85,6 +85,13 @@ event_repo: Optional[EventRepository] = None
 background_validator: Optional[BackgroundValidatorScheduler] = None
 
 
+async def _broadcast_validation_update(event: dict) -> None:
+    try:
+        await websocket_manager.broadcast_validation(event)
+    except Exception as exc:
+        print(f"⚠️  Failed to broadcast validation via WebSocket: {exc}")
+
+
 @app.on_event("startup")
 async def startup_db_client():
     """Initialize MongoDB connection and create indexes"""
@@ -107,6 +114,7 @@ async def startup_db_client():
                 interval_seconds=BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
                 lookback_hours=BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
                 batch_size=BACKGROUND_VALIDATOR_BATCH_SIZE,
+                on_validated=_broadcast_validation_update,
             )
             background_validator.start()
     except Exception as e:
@@ -120,6 +128,7 @@ async def startup_db_client():
                 interval_seconds=BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
                 lookback_hours=BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
                 batch_size=BACKGROUND_VALIDATOR_BATCH_SIZE,
+                on_validated=_broadcast_validation_update,
             )
             background_validator.start()
 
@@ -208,6 +217,8 @@ async def explain_event(event_id: str):
             "sector": asset.get("sector", ""),
             "prediction": asset.get("prediction", "NEUTRAL"),
             "confidence": asset.get("confidence", 0.5),
+            "predicted_move_percent": asset.get("predicted_move_percent"),
+            "actual_move_24h": asset.get("actual_move_24h", asset.get("actual_move_pct")),
             "reason": asset.get("reason", ""),
             "validation_status": asset.get("validation_status", "PENDING"),
         })
@@ -271,7 +282,8 @@ async def get_validations(limit: int = Query(20, ge=1, le=100)):
             if not validation_status:
                 continue
 
-            actual_move_pct = asset.get("actual_move_pct")
+            actual_move_pct = asset.get("actual_move_24h", asset.get("actual_move_pct"))
+            predicted_move_pct = asset.get("predicted_move_percent")
             materialized_validations.append(
                 {
                     "event_id": event.get("event_id", ""),
@@ -279,10 +291,12 @@ async def get_validations(limit: int = Query(20, ge=1, le=100)):
                     "predicted_direction": asset.get("prediction", "NEUTRAL"),
                     "predicted_ticker": asset.get("ticker", ""),
                     "predicted_confidence": asset.get("confidence", 0.5),
+                    "predicted_move_percent": predicted_move_pct,
                     "horizon": "1d",
                     "price_at_event": 0.0,
                     "price_at_validation": 0.0,
                     "actual_change_percent": actual_move_pct if actual_move_pct is not None else 0.0,
+                    "actual_move_24h": actual_move_pct,
                     "status": validation_status,
                     "validated_at": asset.get("validated_at"),
                 }
@@ -322,6 +336,7 @@ async def validate_event(
         except Exception as exc:
             print(f"⚠️  Could not persist validation update for {event_id}: {exc}")
 
+    await _broadcast_validation_update(validated_event)
     summary = validated_event.get("validation_summary", {})
     return {
         "status": "success",

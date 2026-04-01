@@ -76,6 +76,7 @@ def build_ripple_event(
                 "sector": asset["sector"],
                 "prediction": asset["prediction"],
                 "confidence": round(asset["confidence"], 3),
+                "predicted_move_percent": float(asset.get("predicted_move_percent", 0.0) or 0.0),
                 "reason": asset_reason(macro_signal, asset["sector"], asset["prediction"]),
             }
         )

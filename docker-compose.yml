@@ -6,17 +6,27 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     depends_on:
       - mongodb
+      - redis
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - MONGO_DB_NAME=geopulse
       - MOCK_DATA_PATH=/mock_data/mock_data.json
       - MOCK_VALIDATIONS_PATH=/mock_data/mock_validations.json
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
+      - RAW_ARTICLE_QUEUE=geopulse:articles:raw
+      - CLEAN_ARTICLE_QUEUE=geopulse:articles:clean
     volumes:
       - ./backend:/app
       - ./mock_data:/mock_data

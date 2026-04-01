@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.db.repository import EventRepository
@@ -56,6 +57,7 @@ async def validate_recent_unvalidated_events(
 	event_repo: EventRepository | None,
 	lookback_hours: int,
 	batch_size: int,
+	on_validated: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, int]:
 	"""Revalidate recent events and persist updated validation fields."""
 	if event_repo is not None:
@@ -89,6 +91,9 @@ async def validate_recent_unvalidated_events(
 					validation_summary=validated_event.get("validation_summary", {}),
 					is_validated=bool(validated_event.get("is_validated", False)),
 				)
+
+			if on_validated is not None:
+				await on_validated(validated_event)
 
 			processed += 1
 		except Exception:

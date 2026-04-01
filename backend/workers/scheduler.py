@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from app.db.repository import EventRepository
 from app.services.orchestrator import EventStore
@@ -18,12 +19,14 @@ class BackgroundValidatorScheduler:
 		interval_seconds: int,
 		lookback_hours: int,
 		batch_size: int,
+		on_validated: Callable[[dict], Awaitable[None]] | None = None,
 	) -> None:
 		self._event_store = event_store
 		self._event_repo = event_repo
 		self._interval_seconds = max(1, interval_seconds)
 		self._lookback_hours = max(1, lookback_hours)
 		self._batch_size = max(1, batch_size)
+		self._on_validated = on_validated
 		self._task: asyncio.Task[None] | None = None
 
 	def start(self) -> None:
@@ -59,6 +62,7 @@ class BackgroundValidatorScheduler:
 					event_repo=self._event_repo,
 					lookback_hours=self._lookback_hours,
 					batch_size=self._batch_size,
+					on_validated=self._on_validated,
 				)
 				if result["candidates"] > 0:
 					logger.info(
