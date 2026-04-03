@@ -207,6 +207,35 @@ export async function getLlmHealth() {
 }
 
 /**
+ * Get persisted UI settings for a user.
+ */
+export async function getUserSettings(userId = 'demo-user') {
+  try {
+    const data = await apiGet(`/settings?user_id=${encodeURIComponent(userId)}`);
+    return data.data || null;
+  } catch (error) {
+    console.error('Failed to fetch user settings:', error);
+    return null;
+  }
+}
+
+/**
+ * Persist UI settings for a user.
+ */
+export async function updateUserSettings(settings, userId = 'demo-user') {
+  try {
+    const data = await apiPost('/settings', {
+      user_id: userId,
+      settings,
+    });
+    return data.data || null;
+  } catch (error) {
+    console.error('Failed to update user settings:', error);
+    throw error;
+  }
+}
+
+/**
  * Connect to WebSocket for real-time events
  * @returns {WebSocket} Connected WebSocket instance
  */

@@ -11,6 +11,8 @@ import time
 from urllib import request as urllib_request
 from urllib.error import URLError, HTTPError
 
+from app.core.config import ENABLE_LLM
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 2.5
@@ -213,7 +215,7 @@ def get_llm_runtime_health() -> dict[str, object]:
     )
 
     status: dict[str, object] = {
-        "enabled": os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true",
+        "enabled": ENABLE_LLM,
         "base_url": base_url,
         "model": model,
         "timeout_seconds": timeout_seconds,

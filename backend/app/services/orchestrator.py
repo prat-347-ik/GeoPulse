@@ -3,13 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 import asyncio
 import json
-import os
 from pathlib import Path
 import threading
 from typing import Any
 
 from app.analysis.pipeline import AnalysisPipeline
-from app.core.config import ENABLE_MARKET_VALIDATION
+from app.core.config import ENABLE_MARKET_VALIDATION, ENABLE_LLM
 from app.nlp.event_extractor import (
 	extract_geopolitical_triggers,
 	extract_geopolitical_triggers_async,
@@ -146,7 +145,7 @@ class AnalysisOrchestrator:
 
 	async def analyze_with_nlp_async(self, article: dict[str, Any]) -> dict[str, Any]:
 		article_with_signals = dict(article)
-		use_local_llm = os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true"
+		use_local_llm = ENABLE_LLM
 		if use_local_llm:
 			article_with_signals["geopolitical_signals"] = await extract_geopolitical_triggers_async(
 				article,

@@ -34,7 +34,16 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import ReasoningChainVisualizer from './ReasoningChainVisualizer';
-import { fetchEventExplanation } from '../lib/api';
+import { fetchEventExplanation, getUserSettings, updateUserSettings } from '../lib/api';
+import {
+  selectDashboardStats,
+  selectEventsLast24h,
+  selectInterestRows,
+  selectPredictionRows,
+  selectRecentActivity,
+  selectTrendingTopics,
+  selectValidationAccuracy,
+} from '../app/selectors';
 
 const tabs = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -46,82 +55,11 @@ const tabs = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// Mock data for different tabs
-const mockTrendingTopics = [
-  { label: 'AI Regulation', events: 12, change: '+24%' },
-  { label: 'Oil Prices', events: 8, change: '+18%' },
-  { label: 'Fed Policy', events: 15, change: '+8%' },
-  { label: 'Crypto ETFs', events: 6, change: '+45%' },
-  { label: 'China Stimulus', events: 4, change: '+12%' },
-];
-
-const mockInterests = [
-  { tag: 'Energy', weight: 85, notifications: true },
-  { tag: 'Technology', weight: 72, notifications: true },
-  { tag: 'Federal Reserve', weight: 68, notifications: false },
-  { tag: 'Cryptocurrency', weight: 45, notifications: true },
-  { tag: 'Trade Policy', weight: 32, notifications: false },
-];
-
-const mockPredictions = [
-  { asset: 'XOM', prediction: 'BULLISH', confidence: 92, status: 'ACTIVE', timeLeft: '2h 15m' },
-  { asset: 'MSFT', prediction: 'BEARISH', confidence: 65, status: 'PENDING', timeLeft: '8h 45m' },
-  { asset: 'BTC', prediction: 'BULLISH', confidence: 78, status: 'ACTIVE', timeLeft: '1d 3h' },
-  { asset: 'SPY', prediction: 'BULLISH', confidence: 88, status: 'VALIDATED', accuracy: 'CORRECT' },
-];
-
-// Extended mock data for fullscreen views
-const extendedTrendingTopics = [
-  { label: 'AI Regulation', events: 12, change: '+24%', category: 'Technology', severity: 'HIGH', regions: ['US', 'EU'], description: 'New legislative proposals for AI governance' },
-  { label: 'Oil Prices', events: 8, change: '+18%', category: 'Energy', severity: 'HIGH', regions: ['ME', 'US'], description: 'OPEC+ production cuts affecting global markets' },
-  { label: 'Fed Policy', events: 15, change: '+8%', category: 'Finance', severity: 'CRITICAL', regions: ['US'], description: 'Federal Reserve interest rate decisions' },
-  { label: 'Crypto ETFs', events: 6, change: '+45%', category: 'Crypto', severity: 'MEDIUM', regions: ['US', 'EU'], description: 'Bitcoin ETF approval speculation' },
-  { label: 'China Stimulus', events: 4, change: '+12%', category: 'Economy', severity: 'HIGH', regions: ['CN', 'APAC'], description: 'Economic stimulus measures announced' },
-  { label: 'Climate Summit', events: 9, change: '+15%', category: 'Environment', severity: 'MEDIUM', regions: ['GLOBAL'], description: 'COP30 negotiations and commitments' },
-  { label: 'Tech Layoffs', events: 7, change: '-5%', category: 'Employment', severity: 'MEDIUM', regions: ['US', 'EU'], description: 'Continued workforce reductions in tech sector' },
-  { label: 'Bank Earnings', events: 11, change: '+22%', category: 'Finance', severity: 'HIGH', regions: ['US', 'EU'], description: 'Q4 earnings reports from major banks' },
-];
-
-const extendedDiscoverTopics = [
-  { title: 'European Central Bank Policy', description: 'Based on your interest in monetary policy', match: 92, followers: '12.4K', events24h: 8 },
-  { title: 'Renewable Energy Sector', description: 'High activity detected', match: 87, followers: '45.2K', events24h: 15 },
-  { title: 'China Trade Relations', description: 'Trending in your region', match: 78, followers: '8.9K', events24h: 6 },
-  { title: 'Semiconductor Industry', description: 'Related to your watchlist', match: 85, followers: '32.1K', events24h: 12 },
-  { title: 'Healthcare Innovation', description: 'Emerging sector activity', match: 72, followers: '18.7K', events24h: 9 },
-  { title: 'Defense Spending', description: 'Geopolitical relevance', match: 68, followers: '6.3K', events24h: 4 },
-];
-
-const extendedInterests = [
-  { tag: 'Energy', weight: 85, notifications: true, events: 24, predictions: 8, accuracy: 82 },
-  { tag: 'Technology', weight: 72, notifications: true, events: 45, predictions: 12, accuracy: 76 },
-  { tag: 'Federal Reserve', weight: 68, notifications: false, events: 18, predictions: 5, accuracy: 90 },
-  { tag: 'Cryptocurrency', weight: 45, notifications: true, events: 32, predictions: 15, accuracy: 65 },
-  { tag: 'Trade Policy', weight: 32, notifications: false, events: 12, predictions: 3, accuracy: 78 },
-  { tag: 'Commodities', weight: 58, notifications: true, events: 28, predictions: 7, accuracy: 71 },
-  { tag: 'Healthcare', weight: 25, notifications: false, events: 15, predictions: 2, accuracy: 80 },
-];
-
-const extendedPredictions = [
-  { asset: 'XOM', prediction: 'BULLISH', confidence: 92, status: 'ACTIVE', timeLeft: '2h 15m', entry: '$104.50', target: '$112.00', stopLoss: '$101.00', pnl: '+3.2%' },
-  { asset: 'MSFT', prediction: 'BEARISH', confidence: 65, status: 'PENDING', timeLeft: '8h 45m', entry: '$378.00', target: '$365.00', stopLoss: '$385.00', pnl: '0%' },
-  { asset: 'BTC', prediction: 'BULLISH', confidence: 78, status: 'ACTIVE', timeLeft: '1d 3h', entry: '$42,500', target: '$48,000', stopLoss: '$40,000', pnl: '+5.8%' },
-  { asset: 'SPY', prediction: 'BULLISH', confidence: 88, status: 'VALIDATED', accuracy: 'CORRECT', entry: '$475.00', target: '$490.00', pnl: '+3.7%' },
-  { asset: 'NVDA', prediction: 'BULLISH', confidence: 85, status: 'ACTIVE', timeLeft: '4h 30m', entry: '$485.00', target: '$520.00', stopLoss: '$470.00', pnl: '+2.1%' },
-  { asset: 'AAPL', prediction: 'BEARISH', confidence: 72, status: 'VALIDATED', accuracy: 'INCORRECT', entry: '$188.00', target: '$175.00', pnl: '-1.5%' },
-];
-
-const dashboardStats = {
-  totalEvents: 156,
-  predictionsAccuracy: 78,
-  activePredictions: 12,
-  highSeverityAlerts: 3,
-  portfolioChange: '+4.2%',
-  weeklyPredictions: 24,
-  successRate: '18/24',
-};
-
 // Fullscreen/Expanded Tab Components
-function FullscreenDashboard({ onClose }) {
+function FullscreenDashboard({ onClose, events = [], validations = [] }) {
+  const { activePredictionRows, stats: dashboardStats } = selectDashboardStats(events, validations);
+  const recentActivity = selectRecentActivity(events, 5);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -204,14 +142,8 @@ function FullscreenDashboard({ onClose }) {
                 Recent Activity
               </h3>
               <div className="space-y-3">
-                {[
-                  { title: 'XOM Prediction Validated', type: 'success', time: '15 min ago', detail: '+2.4% return' },
-                  { title: 'Fed Rate Decision Event', type: 'alert', time: '32 min ago', detail: 'HIGH severity' },
-                  { title: 'MSFT Alert Triggered', type: 'warning', time: '1h ago', detail: '-1.2% movement' },
-                  { title: 'New prediction: NVDA', type: 'info', time: '2h ago', detail: 'BULLISH 85%' },
-                  { title: 'BTC target reached', type: 'success', time: '3h ago', detail: '+5.8% return' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-bg-primary rounded-lg hover:bg-gray-800 cursor-pointer transition-colors">
+                {recentActivity.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between p-3 bg-bg-primary rounded-lg hover:bg-gray-800 cursor-pointer transition-colors">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-2 rounded-full ${
                         item.type === 'success' ? 'bg-accent-green' :
@@ -240,32 +172,32 @@ function FullscreenDashboard({ onClose }) {
                 Active Predictions
               </h3>
               <div className="space-y-3">
-                {extendedPredictions.filter(p => p.status === 'ACTIVE').map((pred, i) => (
-                  <div key={i} className="p-4 bg-bg-primary rounded-lg border border-gray-700">
+                {activePredictionRows.map((pred) => (
+                  <div key={pred.id} className="p-4 bg-bg-primary rounded-lg border border-gray-700">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-lg font-mono text-accent-blue">{pred.asset}</span>
-                      <span className={`text-sm font-semibold ${pred.prediction === 'BULLISH' ? 'text-accent-green' : 'text-accent-red'}`}>
-                        {pred.prediction === 'BULLISH' ? '↑' : '↓'} {pred.prediction}
+                      <span className={`text-sm font-semibold ${pred.prediction === 'BULLISH' ? 'text-accent-green' : pred.prediction === 'BEARISH' ? 'text-accent-red' : 'text-text-secondary'}`}>
+                        {pred.prediction === 'BULLISH' ? '↑' : pred.prediction === 'BEARISH' ? '↓' : '•'} {pred.prediction}
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       <div>
                         <span className="text-text-secondary">Entry</span>
-                        <p className="text-white">{pred.entry}</p>
+                        <p className="text-white">N/A</p>
                       </div>
                       <div>
                         <span className="text-text-secondary">Target</span>
-                        <p className="text-accent-green">{pred.target}</p>
+                        <p className="text-accent-green">N/A</p>
                       </div>
                       <div>
                         <span className="text-text-secondary">P&L</span>
-                        <p className={pred.pnl.startsWith('+') ? 'text-accent-green' : 'text-accent-red'}>{pred.pnl}</p>
+                        <p className={pred.pnl && pred.pnl.startsWith('+') ? 'text-accent-green' : 'text-accent-red'}>{pred.pnl || 'N/A'}</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
                       <div className="flex items-center gap-1 text-xs text-text-secondary">
                         <Clock className="w-3 h-3" />
-                        {pred.timeLeft}
+                        {pred.timeLabel}
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-text-secondary">{pred.confidence}%</span>
@@ -305,7 +237,18 @@ function FullscreenDashboard({ onClose }) {
   );
 }
 
-function FullscreenDiscover({ onClose }) {
+function FullscreenDiscover({ onClose, events = [] }) {
+  const topicRows = selectTrendingTopics(events);
+  const discoverTopics = topicRows.slice(0, 6).map((topic, idx) => ({
+    id: `${topic.label}-${idx}`,
+    title: topic.label,
+    description: topic.description,
+    match: Math.max(50, Math.min(99, 60 + topic.events * 5)),
+    followers: `${(topic.events * 1.7).toFixed(1)}K`,
+    events24h: topic.recent,
+  }));
+  const categories = Array.from(new Set(topicRows.map((row) => row.category).filter(Boolean))).slice(0, 12);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -347,8 +290,8 @@ function FullscreenDiscover({ onClose }) {
               Recommended for You
             </h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {extendedDiscoverTopics.map((topic, i) => (
-                <div key={i} className="p-5 bg-bg-card rounded-xl border border-gray-800 hover:border-accent-blue/50 transition-colors cursor-pointer">
+              {discoverTopics.map((topic) => (
+                <div key={topic.id} className="p-5 bg-bg-card rounded-xl border border-gray-800 hover:border-accent-blue/50 transition-colors cursor-pointer">
                   <div className="flex items-start justify-between mb-3">
                     <h4 className="text-lg font-medium text-white">{topic.title}</h4>
                     <span className="text-xs px-2 py-1 bg-accent-blue/20 text-accent-blue rounded">{topic.match}% match</span>
@@ -381,8 +324,8 @@ function FullscreenDiscover({ onClose }) {
           <div>
             <h3 className="text-lg font-semibold text-white mb-4">Browse by Category</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {['Technology', 'Finance', 'Energy', 'Crypto', 'Politics', 'Healthcare', 'Commodities', 'Trade', 'Environment', 'Employment', 'Real Estate', 'Defense'].map((cat, i) => (
-                <button key={i} className="p-4 bg-bg-card rounded-xl border border-gray-800 text-center hover:border-accent-blue/50 transition-colors">
+              {(categories.length ? categories : ['General']).map((cat, i) => (
+                <button key={`${cat}-${i}`} className="p-4 bg-bg-card rounded-xl border border-gray-800 text-center hover:border-accent-blue/50 transition-colors">
                   <Globe className="w-5 h-5 mx-auto mb-2 text-accent-blue" />
                   <span className="text-sm text-white">{cat}</span>
                 </button>
@@ -395,7 +338,13 @@ function FullscreenDiscover({ onClose }) {
   );
 }
 
-function FullscreenTrending({ onClose }) {
+function FullscreenTrending({ onClose, events = [] }) {
+  const topics = selectTrendingTopics(events);
+  const avgMomentum = topics.length
+    ? Math.round(topics.reduce((sum, t) => sum + Number(t.change.replace('%', '')), 0) / topics.length)
+    : 0;
+  const newToday = selectEventsLast24h(events);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -427,15 +376,15 @@ function FullscreenTrending({ onClose }) {
           {/* Stats Banner */}
           <div className="grid grid-cols-3 gap-4">
             <div className="p-4 bg-gradient-to-br from-accent-green/20 to-transparent rounded-xl border border-accent-green/30">
-              <p className="text-2xl font-bold text-accent-green">+18%</p>
+              <p className="text-2xl font-bold text-accent-green">{avgMomentum >= 0 ? '+' : ''}{avgMomentum}%</p>
               <p className="text-sm text-text-secondary">Average momentum</p>
             </div>
             <div className="p-4 bg-gradient-to-br from-accent-blue/20 to-transparent rounded-xl border border-accent-blue/30">
-              <p className="text-2xl font-bold text-accent-blue">67</p>
+              <p className="text-2xl font-bold text-accent-blue">{topics.length}</p>
               <p className="text-sm text-text-secondary">Active topics</p>
             </div>
             <div className="p-4 bg-gradient-to-br from-accent-amber/20 to-transparent rounded-xl border border-accent-amber/30">
-              <p className="text-2xl font-bold text-accent-amber">12</p>
+              <p className="text-2xl font-bold text-accent-amber">{newToday}</p>
               <p className="text-sm text-text-secondary">New today</p>
             </div>
           </div>
@@ -451,7 +400,7 @@ function FullscreenTrending({ onClose }) {
               <div className="col-span-1">Severity</div>
               <div className="col-span-2 text-right">Change</div>
             </div>
-            {extendedTrendingTopics.map((topic, index) => (
+            {topics.map((topic, index) => (
               <div key={index} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer transition-colors items-center">
                 <div className="col-span-1">
                   <span className="text-lg font-bold text-text-secondary">{index + 1}</span>
@@ -464,7 +413,7 @@ function FullscreenTrending({ onClose }) {
                   <span className="px-2 py-1 bg-bg-primary rounded text-xs text-text-secondary">{topic.category}</span>
                 </div>
                 <div className="col-span-2 flex gap-1 flex-wrap">
-                  {topic.regions.map((r, i) => (
+                  {(topic.regions.length ? topic.regions : ['GLOBAL']).map((r, i) => (
                     <span key={i} className="px-1.5 py-0.5 bg-accent-blue/20 text-accent-blue text-xs rounded">{r}</span>
                   ))}
                 </div>
@@ -491,7 +440,10 @@ function FullscreenTrending({ onClose }) {
   );
 }
 
-function FullscreenInterests({ onClose }) {
+function FullscreenInterests({ onClose, events = [], validations = [] }) {
+  const interests = selectInterestRows(events, validations);
+  const suggestedTopics = selectTrendingTopics(events).slice(0, 6);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -520,8 +472,8 @@ function FullscreenInterests({ onClose }) {
         <div className="p-6 space-y-6">
           {/* Interest Cards Grid */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {extendedInterests.map((interest, i) => (
-              <div key={i} className="p-5 bg-bg-card rounded-xl border border-gray-800">
+            {interests.map((interest, i) => (
+              <div key={`${interest.tag}-${i}`} className="p-5 bg-bg-card rounded-xl border border-gray-800">
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-lg font-medium text-white">{interest.tag}</h4>
                   <div className="flex items-center gap-2">
@@ -568,12 +520,18 @@ function FullscreenInterests({ onClose }) {
           <div>
             <h3 className="text-lg font-semibold text-white mb-4">Suggested Interests</h3>
             <div className="flex flex-wrap gap-3">
-              {['Artificial Intelligence', 'Electric Vehicles', 'Gold', 'Japanese Yen', 'Interest Rates', 'Supply Chain'].map((tag, i) => (
-                <button key={i} className="px-4 py-2 bg-bg-card border border-gray-700 rounded-lg text-text-secondary hover:text-white hover:border-accent-blue/50 transition-colors flex items-center gap-2">
-                  <span>{tag}</span>
+              {suggestedTopics.map((topic, i) => (
+                <button key={`${topic.label}-${i}`} className="px-4 py-2 bg-bg-card border border-gray-700 rounded-lg text-text-secondary hover:text-white hover:border-accent-blue/50 transition-colors flex items-center gap-2">
+                  <span>{topic.label}</span>
                   <span className="text-accent-blue">+</span>
                 </button>
               ))}
+              {suggestedTopics.length === 0 && (
+                <button className="px-4 py-2 bg-bg-card border border-gray-700 rounded-lg text-text-secondary transition-colors flex items-center gap-2">
+                  <span>No suggestions yet</span>
+                  <span className="text-accent-blue">+</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -582,7 +540,13 @@ function FullscreenInterests({ onClose }) {
   );
 }
 
-function FullscreenPredictions({ onClose }) {
+function FullscreenPredictions({ onClose, events = [] }) {
+  const predictions = selectPredictionRows(events);
+  const activeCount = predictions.filter((p) => p.status === 'ACTIVE').length;
+  const pendingCount = activeCount;
+  const correctCount = predictions.filter((p) => p.validationStatus === 'CORRECT').length;
+  const incorrectCount = predictions.filter((p) => p.validationStatus === 'INCORRECT').length;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -612,19 +576,19 @@ function FullscreenPredictions({ onClose }) {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4">
             <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
-              <p className="text-2xl font-bold text-white">{extendedPredictions.filter(p => p.status === 'ACTIVE').length}</p>
+              <p className="text-2xl font-bold text-white">{activeCount}</p>
               <p className="text-sm text-text-secondary">Active</p>
             </div>
             <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
-              <p className="text-2xl font-bold text-accent-amber">{extendedPredictions.filter(p => p.status === 'PENDING').length}</p>
+              <p className="text-2xl font-bold text-accent-amber">{pendingCount}</p>
               <p className="text-sm text-text-secondary">Pending</p>
             </div>
             <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
-              <p className="text-2xl font-bold text-accent-green">{extendedPredictions.filter(p => p.accuracy === 'CORRECT').length}</p>
+              <p className="text-2xl font-bold text-accent-green">{correctCount}</p>
               <p className="text-sm text-text-secondary">Correct</p>
             </div>
             <div className="p-4 bg-bg-card rounded-xl border border-gray-800">
-              <p className="text-2xl font-bold text-accent-red">{extendedPredictions.filter(p => p.accuracy === 'INCORRECT').length}</p>
+              <p className="text-2xl font-bold text-accent-red">{incorrectCount}</p>
               <p className="text-sm text-text-secondary">Incorrect</p>
             </div>
           </div>
@@ -640,22 +604,22 @@ function FullscreenPredictions({ onClose }) {
               <div className="col-span-2">Status</div>
               <div className="col-span-1 text-right">P&L</div>
             </div>
-            {extendedPredictions.map((pred, index) => (
-              <div key={index} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer transition-colors items-center">
+            {predictions.map((pred) => (
+              <div key={pred.id} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer transition-colors items-center">
                 <div className="col-span-2">
                   <span className="text-lg font-mono text-accent-blue">{pred.asset}</span>
                 </div>
                 <div className="col-span-2">
-                  <span className={`flex items-center gap-1 font-medium ${pred.prediction === 'BULLISH' ? 'text-accent-green' : 'text-accent-red'}`}>
-                    {pred.prediction === 'BULLISH' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                  <span className={`flex items-center gap-1 font-medium ${pred.prediction === 'BULLISH' ? 'text-accent-green' : pred.prediction === 'BEARISH' ? 'text-accent-red' : 'text-text-secondary'}`}>
+                    {pred.prediction === 'BULLISH' ? <TrendingUp className="w-4 h-4" /> : pred.prediction === 'BEARISH' ? <TrendingDown className="w-4 h-4" /> : <Target className="w-4 h-4" />}
                     {pred.prediction}
                   </span>
                 </div>
                 <div className="col-span-2">
-                  <span className="text-white">{pred.entry}</span>
+                  <span className="text-white">N/A</span>
                 </div>
                 <div className="col-span-2">
-                  <span className="text-accent-green">{pred.target}</span>
+                  <span className="text-accent-green">N/A</span>
                 </div>
                 <div className="col-span-1">
                   <div className="flex items-center gap-1">
@@ -672,12 +636,12 @@ function FullscreenPredictions({ onClose }) {
                     'bg-accent-blue/20 text-accent-blue'
                   }`}>
                     {pred.status}
-                    {pred.timeLeft && <span className="ml-1 opacity-75">• {pred.timeLeft}</span>}
+                    {pred.timeLabel && <span className="ml-1 opacity-75">• {pred.timeLabel}</span>}
                   </span>
                 </div>
                 <div className="col-span-1 text-right">
-                  <span className={`text-lg font-semibold ${pred.pnl.startsWith('+') ? 'text-accent-green' : pred.pnl === '0%' ? 'text-text-secondary' : 'text-accent-red'}`}>
-                    {pred.pnl}
+                  <span className={`text-lg font-semibold ${pred.pnl?.startsWith('+') ? 'text-accent-green' : pred.pnl === '0.00%' ? 'text-text-secondary' : 'text-accent-red'}`}>
+                    {pred.pnl || 'N/A'}
                   </span>
                 </div>
               </div>
@@ -963,30 +927,13 @@ function FullscreenExplanation({ onClose, events = [], liveMessage = null }) {
   );
 }
 
-function DashboardTab({ events = [], validations = [], backendActions = [] }) {
-  const now = Date.now();
-  const recentWindowMs = 24 * 60 * 60 * 1000;
-  const eventsLast24h = events.filter((evt) => {
-    const t = Date.parse(evt.timestamp || evt.ingested_at || '');
-    return Number.isFinite(t) && now - t <= recentWindowMs;
-  }).length;
-
-  const resolvedValidations = validations.filter(
-    (v) => v.status === 'CORRECT' || v.status === 'INCORRECT',
-  );
-  const correctCount = resolvedValidations.filter((v) => v.status === 'CORRECT').length;
-  const accuracy = resolvedValidations.length
-    ? Math.round((correctCount / resolvedValidations.length) * 100)
-    : 0;
-
-  const activePredictions = events.reduce((sum, evt) => {
-    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
-    return sum + assets.filter((a) => !a.validation_status).length;
-  }, 0);
-
+function DashboardTab({ events = [], validations = [] }) {
+  const eventsLast24h = selectEventsLast24h(events);
+  const { accuracyPct: accuracy } = selectValidationAccuracy(validations);
+  const activePredictions = selectPredictionRows(events).filter((p) => p.status === 'ACTIVE').length;
   const highSeverityAlerts = events.filter((evt) => evt.severity === 'HIGH' || evt.severity === 'CRITICAL').length;
 
-  const recentActivity = backendActions.slice(0, 3);
+  const recentActivity = events.slice(0, 3);
 
   return (
     <div className="space-y-4">
@@ -1037,22 +984,16 @@ function DashboardTab({ events = [], validations = [], backendActions = [] }) {
         <div className="space-y-2">
           {recentActivity.length === 0 && (
             <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">
-              Run analyze, simulate, or validate to populate backend activity.
+              Recent market events will appear here.
             </div>
           )}
-          {recentActivity.map((action) => (
-            <div key={action.id} className="p-3 bg-bg-primary rounded-lg">
+          {recentActivity.map((event) => (
+            <div key={event.event_id} className="p-3 bg-bg-primary rounded-lg">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white capitalize">{action.actionType}</span>
-                <span
-                  className={`text-xs ${
-                    action.status === 'success' ? 'text-accent-green' : 'text-accent-red'
-                  }`}
-                >
-                  {action.status.toUpperCase()}
-                </span>
+                <span className="text-sm text-white line-clamp-1">{event.headline || 'Untitled event'}</span>
+                <span className="text-xs text-accent-blue uppercase">{event.severity || 'medium'}</span>
               </div>
-              <p className="text-xs text-text-secondary line-clamp-1">{action.details}</p>
+              <p className="text-xs text-text-secondary line-clamp-1">{event.event_type || 'General market update'}</p>
             </div>
           ))}
         </div>
@@ -1077,7 +1018,9 @@ function DashboardTab({ events = [], validations = [], backendActions = [] }) {
   );
 }
 
-function DiscoverTab() {
+function DiscoverTab({ events = [] }) {
+  const topics = selectTrendingTopics(events).slice(0, 3);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -1088,21 +1031,19 @@ function DiscoverTab() {
       <div className="space-y-2">
         <h4 className="text-xs text-text-secondary uppercase tracking-wider">Recommended for you</h4>
         <div className="space-y-3">
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <p className="text-sm text-white mb-1">European Central Bank Policy</p>
-            <p className="text-xs text-text-secondary mb-2">Based on your interest in monetary policy</p>
-            <button className="text-xs text-accent-blue">+ Follow Topic</button>
-          </div>
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <p className="text-sm text-white mb-1">Renewable Energy Sector</p>
-            <p className="text-xs text-text-secondary mb-2">High activity detected</p>
-            <button className="text-xs text-accent-blue">+ Follow Topic</button>
-          </div>
-          <div className="p-3 bg-bg-primary rounded-lg">
-            <p className="text-sm text-white mb-1">China Trade Relations</p>
-            <p className="text-xs text-text-secondary mb-2">Trending in your region</p>
-            <button className="text-xs text-accent-blue">+ Follow Topic</button>
-          </div>
+          {topics.length === 0 && (
+            <div className="p-3 bg-bg-primary rounded-lg">
+              <p className="text-sm text-white mb-1">No recommendations yet</p>
+              <p className="text-xs text-text-secondary mb-2">As events stream in, this panel will suggest topics to follow.</p>
+            </div>
+          )}
+          {topics.map((topic, index) => (
+            <div key={`${topic.label}-${index}`} className="p-3 bg-bg-primary rounded-lg">
+              <p className="text-sm text-white mb-1">{topic.label}</p>
+              <p className="text-xs text-text-secondary mb-2 line-clamp-2">{topic.description}</p>
+              <button className="text-xs text-accent-blue">+ Follow Topic</button>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1110,27 +1051,7 @@ function DiscoverTab() {
 }
 
 function TrendingTab({ events = [] }) {
-  const topicMap = new Map();
-  events.forEach((evt) => {
-    const key = evt.event_type || evt.market_pressure || 'Unknown';
-    const current = topicMap.get(key) || { label: key, events: 0, score: 0 };
-    current.events += 1;
-    current.score += Number(evt.confidence || 0);
-    topicMap.set(key, current);
-  });
-
-  const topics = Array.from(topicMap.values())
-    .sort((a, b) => b.events - a.events || b.score - a.score)
-    .slice(0, 5)
-    .map((topic, index) => {
-      const prev = index < 4 ? topic.events - 1 : topic.events - 2;
-      const change = Math.max(0, Math.round(((topic.events - Math.max(1, prev)) / Math.max(1, prev)) * 100));
-      return {
-        label: topic.label,
-        events: topic.events,
-        change: `+${change}%`,
-      };
-    });
+  const topics = selectTrendingTopics(events).slice(0, 5);
 
   return (
     <div className="space-y-4">
@@ -1163,23 +1084,7 @@ function TrendingTab({ events = [] }) {
 }
 
 function InterestsTab({ events = [] }) {
-  const sectorMap = new Map();
-  events.forEach((evt) => {
-    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
-    assets.forEach((asset) => {
-      const tag = asset.sector || 'Uncategorized';
-      sectorMap.set(tag, (sectorMap.get(tag) || 0) + 1);
-    });
-  });
-  const maxWeight = Math.max(...Array.from(sectorMap.values()), 1);
-  const interests = Array.from(sectorMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([tag, score], idx) => ({
-      tag,
-      weight: Math.round((score / maxWeight) * 100),
-      notifications: idx % 2 === 0,
-    }));
+  const interests = selectInterestRows(events, []).slice(0, 6);
 
   return (
     <div className="space-y-4">
@@ -1220,22 +1125,7 @@ function InterestsTab({ events = [] }) {
 }
 
 function PredictionsTab({ events = [] }) {
-  const rows = [];
-  events.forEach((evt) => {
-    const assets = Array.isArray(evt.affected_assets) ? evt.affected_assets : [];
-    assets.forEach((asset) => {
-      rows.push({
-        asset: asset.ticker || 'N/A',
-        prediction: asset.prediction || 'NEUTRAL',
-        confidence: Math.round(Number(asset.confidence || 0) * 100),
-        status: asset.validation_status ? 'VALIDATED' : 'ACTIVE',
-        timeLeft: asset.validation_status ? null : 'Pending',
-        accuracy: asset.validation_status === 'CORRECT' ? 'CORRECT' : asset.validation_status === 'INCORRECT' ? 'INCORRECT' : null,
-      });
-    });
-  });
-
-  const predictions = rows.slice(0, 6);
+  const predictions = selectPredictionRows(events).slice(0, 6);
 
   return (
     <div className="space-y-4">
@@ -1258,7 +1148,7 @@ function PredictionsTab({ events = [] }) {
                 <span className="text-sm font-mono text-accent-blue">{pred.asset}</span>
                 <span className={`text-xs px-2 py-0.5 rounded ${
                   pred.status === 'ACTIVE' ? 'bg-accent-green/20 text-accent-green' :
-                  pred.status === 'PENDING' ? 'bg-accent-amber/20 text-accent-amber' :
+                    pred.status === 'PENDING' ? 'bg-accent-amber/20 text-accent-amber' :
                   'bg-accent-blue/20 text-accent-blue'
                 }`}>
                   {pred.status}
@@ -1272,15 +1162,15 @@ function PredictionsTab({ events = [] }) {
                 </span>
                 <span className="text-xs text-text-secondary">{pred.confidence}% conf</span>
               </div>
-              {pred.timeLeft && (
+              {pred.timeLabel && (
                 <div className="flex items-center gap-1">
                   <Clock className="w-3 h-3 text-text-secondary" />
-                  <span className="text-xs text-text-secondary">{pred.timeLeft}</span>
+                  <span className="text-xs text-text-secondary">{pred.timeLabel}</span>
                 </div>
               )}
-              {pred.accuracy && (
+              {pred.validationStatus && (
                 <div className="text-xs text-accent-green mt-1">
-                  ✓ {pred.accuracy}
+                  ✓ {pred.validationStatus}
                 </div>
               )}
             </div>
@@ -1438,6 +1328,81 @@ function ExplanationTab({ events = [], liveMessage = null }) {
 }
 
 function SettingsTab() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [savedSettings, setSavedSettings] = useState(null);
+  const [draftSettings, setDraftSettings] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadSettings = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const settings = await getUserSettings();
+        if (!isMounted) return;
+        const normalized = settings || {
+          notifications_high_severity: true,
+          notifications_prediction_updates: false,
+          display_auto_refresh_seconds: 10,
+          display_confidence_threshold: 60,
+        };
+        setSavedSettings(normalized);
+        setDraftSettings(normalized);
+      } catch (e) {
+        if (isMounted) {
+          setError('Could not load settings.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const setPatch = (patch) => {
+    setDraftSettings((prev) => ({ ...(prev || {}), ...patch }));
+  };
+
+  const isDirty = JSON.stringify(draftSettings || {}) !== JSON.stringify(savedSettings || {});
+
+  const handleSave = async () => {
+    if (!draftSettings) {
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const persisted = await updateUserSettings(draftSettings);
+      const normalized = persisted || draftSettings;
+      setSavedSettings(normalized);
+      setDraftSettings(normalized);
+    } catch (e) {
+      setError('Could not save settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !draftSettings) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Settings className="w-4 h-4 text-text-secondary" />
+          <h3 className="text-sm font-semibold text-white">Settings</h3>
+        </div>
+        <div className="p-3 bg-bg-primary rounded-lg text-xs text-text-secondary">Loading settings...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
@@ -1451,14 +1416,20 @@ function SettingsTab() {
           <div className="space-y-2">
             <div className="flex items-center justify-between p-3 bg-bg-primary rounded-lg">
               <span className="text-sm text-white">High Severity Events</span>
-              <button className="w-10 h-5 bg-accent-blue rounded-full relative">
-                <div className="w-4 h-4 bg-white rounded-full absolute right-0.5 top-0.5" />
+              <button
+                onClick={() => setPatch({ notifications_high_severity: !draftSettings.notifications_high_severity })}
+                className={`w-10 h-5 rounded-full relative ${draftSettings.notifications_high_severity ? 'bg-accent-blue' : 'bg-gray-600'}`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ${draftSettings.notifications_high_severity ? 'right-0.5' : 'left-0.5'}`} />
               </button>
             </div>
             <div className="flex items-center justify-between p-3 bg-bg-primary rounded-lg">
               <span className="text-sm text-white">Prediction Updates</span>
-              <button className="w-10 h-5 bg-gray-600 rounded-full relative">
-                <div className="w-4 h-4 bg-white rounded-full absolute left-0.5 top-0.5" />
+              <button
+                onClick={() => setPatch({ notifications_prediction_updates: !draftSettings.notifications_prediction_updates })}
+                className={`w-10 h-5 rounded-full relative ${draftSettings.notifications_prediction_updates ? 'bg-accent-blue' : 'bg-gray-600'}`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ${draftSettings.notifications_prediction_updates ? 'right-0.5' : 'left-0.5'}`} />
               </button>
             </div>
           </div>
@@ -1469,10 +1440,15 @@ function SettingsTab() {
           <div className="space-y-2">
             <div className="flex items-center justify-between p-3 bg-bg-primary rounded-lg">
               <span className="text-sm text-white">Auto-refresh</span>
-              <select className="bg-gray-700 text-white text-sm rounded px-2 py-1">
-                <option>5 seconds</option>
-                <option>10 seconds</option>
-                <option>30 seconds</option>
+              <select
+                value={draftSettings.display_auto_refresh_seconds}
+                onChange={(e) => setPatch({ display_auto_refresh_seconds: Number(e.target.value) })}
+                className="bg-gray-700 text-white text-sm rounded px-2 py-1"
+              >
+                <option value={5}>5 seconds</option>
+                <option value={10}>10 seconds</option>
+                <option value={30}>30 seconds</option>
+                <option value={60}>60 seconds</option>
               </select>
             </div>
             <div className="flex items-center justify-between p-3 bg-bg-primary rounded-lg">
@@ -1481,9 +1457,13 @@ function SettingsTab() {
                 type="range" 
                 min="0" 
                 max="100" 
-                defaultValue="60"
+                value={draftSettings.display_confidence_threshold}
+                onChange={(e) => setPatch({ display_confidence_threshold: Number(e.target.value) })}
                 className="w-16"
               />
+            </div>
+            <div className="text-xs text-text-secondary px-1">
+              {draftSettings.display_confidence_threshold}%
             </div>
           </div>
         </div>
@@ -1502,12 +1482,27 @@ function SettingsTab() {
             </button>
           </div>
         </div>
+
+        <div className="space-y-2">
+          {error && (
+            <div className="p-2 bg-accent-red/20 border border-accent-red/40 rounded text-xs text-accent-red">
+              {error}
+            </div>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={!isDirty || saving}
+            className="w-full p-3 bg-accent-blue text-white rounded-lg text-sm font-medium hover:bg-accent-blue/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving ? 'Saving...' : isDirty ? 'Save Preferences' : 'Preferences Saved'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-export default function RightPanel({ isExpanded, setIsExpanded, events = [], validations = [], backendActions = [], liveMessage = null }) {
+export default function RightPanel({ isExpanded, setIsExpanded, events = [], validations = [], liveMessage = null }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -1532,9 +1527,9 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
   const renderTabContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardTab events={events} validations={validations} backendActions={backendActions} />;
+        return <DashboardTab events={events} validations={validations} />;
       case 'discover':
-        return <DiscoverTab />;
+        return <DiscoverTab events={events} />;
       case 'trending':
         return <TrendingTab events={events} />;
       case 'interests':
@@ -1553,15 +1548,15 @@ export default function RightPanel({ isExpanded, setIsExpanded, events = [], val
   const renderFullscreenContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <FullscreenDashboard onClose={closeFullscreen} />;
+        return <FullscreenDashboard onClose={closeFullscreen} events={events} validations={validations} />;
       case 'discover':
-        return <FullscreenDiscover onClose={closeFullscreen} />;
+        return <FullscreenDiscover onClose={closeFullscreen} events={events} />;
       case 'trending':
-        return <FullscreenTrending onClose={closeFullscreen} />;
+        return <FullscreenTrending onClose={closeFullscreen} events={events} />;
       case 'interests':
-        return <FullscreenInterests onClose={closeFullscreen} />;
+        return <FullscreenInterests onClose={closeFullscreen} events={events} validations={validations} />;
       case 'predictions':
-        return <FullscreenPredictions onClose={closeFullscreen} />;
+        return <FullscreenPredictions onClose={closeFullscreen} events={events} />;
       case 'explanation':
         return <FullscreenExplanation onClose={closeFullscreen} events={events} liveMessage={liveMessage} />;
       default:
@@ -1674,7 +1669,6 @@ export function MobileRightPanel({
   setActiveTab,
   events = [],
   validations = [],
-  backendActions = [],
   liveMessage = null,
 }) {
   const [showContent, setShowContent] = useState(false);
@@ -1682,9 +1676,9 @@ export function MobileRightPanel({
   const renderTabContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardTab events={events} validations={validations} backendActions={backendActions} />;
+        return <DashboardTab events={events} validations={validations} />;
       case 'discover':
-        return <DiscoverTab />;
+        return <DiscoverTab events={events} />;
       case 'trending':
         return <TrendingTab events={events} />;
       case 'interests':

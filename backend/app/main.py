@@ -25,9 +25,12 @@ from app.services.orchestrator import analysis_orchestrator
 from app.nlp.pipeline import enrich_article_with_nlp
 from app.nlp.llm_client import warmup_local_llm
 from app.nlp.llm_client import get_llm_runtime_health
+from app.nlp.event_extractor import extract_geopolitical_triggers
+from app.analysis.reasoning_engine import derive_geopolitical_second_order_effects
 from app.validation.market_validator import validate_event_assets
 from app.core.config import (
     ENABLE_BACKGROUND_VALIDATOR,
+    ENABLE_LLM,
     BACKGROUND_VALIDATOR_INTERVAL_SECONDS,
     BACKGROUND_VALIDATOR_LOOKBACK_HOURS,
     BACKGROUND_VALIDATOR_BATCH_SIZE,
@@ -84,6 +87,95 @@ events_store = analysis_orchestrator.event_store
 event_repo: Optional[EventRepository] = None
 background_validator: Optional[BackgroundValidatorScheduler] = None
 
+DEFAULT_USER_SETTINGS = {
+    "notifications_high_severity": True,
+    "notifications_prediction_updates": False,
+    "display_auto_refresh_seconds": 10,
+    "display_confidence_threshold": 60,
+    "explain_visualization_mode": "narrative",
+}
+
+user_settings_store = {
+    "demo-user": {
+        **DEFAULT_USER_SETTINGS,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+}
+
+
+def _normalized_user_settings(data: dict) -> dict:
+    high_sev = bool(data.get("notifications_high_severity", DEFAULT_USER_SETTINGS["notifications_high_severity"]))
+    pred_updates = bool(data.get("notifications_prediction_updates", DEFAULT_USER_SETTINGS["notifications_prediction_updates"]))
+
+    auto_refresh = int(data.get("display_auto_refresh_seconds", DEFAULT_USER_SETTINGS["display_auto_refresh_seconds"]))
+    allowed_refresh = {5, 10, 30, 60}
+    if auto_refresh not in allowed_refresh:
+        auto_refresh = DEFAULT_USER_SETTINGS["display_auto_refresh_seconds"]
+
+    confidence_threshold = int(data.get("display_confidence_threshold", DEFAULT_USER_SETTINGS["display_confidence_threshold"]))
+    confidence_threshold = max(0, min(100, confidence_threshold))
+
+    explain_mode = str(data.get("explain_visualization_mode", DEFAULT_USER_SETTINGS["explain_visualization_mode"]))
+    if explain_mode not in {"narrative", "graph"}:
+        explain_mode = DEFAULT_USER_SETTINGS["explain_visualization_mode"]
+
+    return {
+        "notifications_high_severity": high_sev,
+        "notifications_prediction_updates": pred_updates,
+        "display_auto_refresh_seconds": auto_refresh,
+        "display_confidence_threshold": confidence_threshold,
+        "explain_visualization_mode": explain_mode,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+async def _load_user_settings(user_id: str) -> dict:
+    if event_repo is not None:
+        try:
+            settings_doc = await event_repo.collection.database.user_settings.find_one({"user_id": user_id})
+            if settings_doc and isinstance(settings_doc.get("settings"), dict):
+                normalized = _normalized_user_settings(settings_doc["settings"])
+                if settings_doc.get("updated_at"):
+                    normalized["updated_at"] = settings_doc["updated_at"]
+                user_settings_store[user_id] = normalized
+                return normalized
+        except Exception as exc:
+            print(f"⚠️  Could not load user settings for {user_id}: {exc}")
+
+    return user_settings_store.get(user_id) or {
+        **DEFAULT_USER_SETTINGS,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+async def _save_user_settings(user_id: str, settings_payload: dict) -> dict:
+    normalized = _normalized_user_settings(settings_payload)
+    user_settings_store[user_id] = normalized
+
+    if event_repo is not None:
+        try:
+            await event_repo.collection.database.user_settings.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "user_id": user_id,
+                        "settings": {
+                            "notifications_high_severity": normalized["notifications_high_severity"],
+                            "notifications_prediction_updates": normalized["notifications_prediction_updates"],
+                            "display_auto_refresh_seconds": normalized["display_auto_refresh_seconds"],
+                            "display_confidence_threshold": normalized["display_confidence_threshold"],
+                            "explain_visualization_mode": normalized["explain_visualization_mode"],
+                        },
+                        "updated_at": normalized["updated_at"],
+                    }
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            print(f"⚠️  Could not persist user settings for {user_id}: {exc}")
+
+    return normalized
+
 
 async def _broadcast_validation_update(event: dict) -> None:
     try:
@@ -104,7 +196,7 @@ async def startup_db_client():
         print("✅ Database initialized successfully")
 
         # Best-effort async warmup to reduce first-token latency for local LLM.
-        if os.getenv("NLP_USE_LOCAL_LLM", "false").lower() == "true":
+        if ENABLE_LLM:
             asyncio.create_task(warmup_local_llm())
 
         if ENABLE_BACKGROUND_VALIDATOR:
@@ -183,12 +275,14 @@ async def explain_event(event_id: str):
     # Build comprehensive reasoning chain for visualization
     headline = event.get("headline", "")
     macro_effect = event.get("macro_effect", "")
-    explanation = event.get("explanation", "")
+    explanation = event.get("explanation") or event.get("summary_explanation") or event.get("why", "")
     event_type = event.get("event_type", "UNKNOWN")
     confidence = event.get("confidence", 0.5)
     
     # Extract geopolitical signals if available
-    geopolitical_signals = event.get("geopolitical_signals", {})
+    geopolitical_signals = event.get("geopolitical_signals") if isinstance(event.get("geopolitical_signals"), dict) else {}
+    if not geopolitical_signals:
+        geopolitical_signals = extract_geopolitical_triggers(event)
     trigger_type = geopolitical_signals.get("trigger_type", "None")
     regions = geopolitical_signals.get("regions", [])
     risk_sentiment = geopolitical_signals.get("risk_sentiment", "NEUTRAL")
@@ -197,7 +291,9 @@ async def explain_event(event_id: str):
     extraction_confidence = geopolitical_signals.get("confidence", 0.5)
     
     # Extract reasoning output if available
-    geopolitical_reasoning = event.get("geopolitical_reasoning", {})
+    geopolitical_reasoning = event.get("geopolitical_reasoning") if isinstance(event.get("geopolitical_reasoning"), dict) else {}
+    if not geopolitical_reasoning:
+        geopolitical_reasoning = derive_geopolitical_second_order_effects(event, geopolitical_signals)
     overlay_impacts = geopolitical_reasoning.get("overlay_sector_impacts", {})
     second_order_effects = geopolitical_reasoning.get("second_order_effects", [])
     reasoning_strength = geopolitical_reasoning.get("reasoning_strength", 0.0)
@@ -550,6 +646,38 @@ async def llm_health_check():
         "status": "success",
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "data": get_llm_runtime_health(),
+    }
+
+
+@app.get("/api/settings")
+async def get_user_settings(
+    user_id: str = Query("demo-user", min_length=1, max_length=64),
+):
+    """Get persisted user UI settings for the right panel."""
+    settings = await _load_user_settings(user_id)
+    return {
+        "status": "success",
+        "data": settings,
+    }
+
+
+@app.post("/api/settings")
+async def update_user_settings(payload: dict):
+    """Persist user UI settings for the right panel."""
+    user_id = str(payload.get("user_id") or "demo-user")
+    incoming_settings = payload.get("settings")
+    if not isinstance(incoming_settings, dict):
+        raise HTTPException(status_code=400, detail="'settings' must be an object")
+
+    current = await _load_user_settings(user_id)
+    merged = {
+        **current,
+        **incoming_settings,
+    }
+    saved = await _save_user_settings(user_id, merged)
+    return {
+        "status": "success",
+        "data": saved,
     }
 
 
